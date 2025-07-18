@@ -19,14 +19,17 @@ io.on("connection", (socket) => {
     const room = roomId.toUpperCase();
     console.log(`👥 ${userName} joined room ${room}`);
     socket.join(room);
+    socket.data = socket.data || {};
+    socket.data.room = room;
+    socket.data.userName = userName;
 
     if (!rooms[room]) rooms[room] = [];
     if (!rooms[room].includes(userName)) {
       rooms[room].push(userName);
     }
 
-    // Gửi danh sách user trong phòng cho tất cả client trong room
     io.to(room).emit("room-users", rooms[room]);
+    console.log("Current users in room", room, rooms[room]);
   });
 
   socket.on("solve", ({ roomId, userName, time }) => {
@@ -38,6 +41,12 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log("❌ Client disconnected");
-    // Không xóa user khỏi room ở đây để đơn giản, có thể thêm nếu cần
+    const room = socket.data?.room;
+    const userName = socket.data?.userName;
+    if (room && userName && rooms[room]) {
+      rooms[room] = rooms[room].filter(u => u !== userName);
+      io.to(room).emit("room-users", rooms[room]);
+      console.log("Current users in room", room, rooms[room]);
+    }
   });
 });
