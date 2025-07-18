@@ -14,23 +14,26 @@ const rooms = {}; // Quản lý người chơi trong từng room
 io.on("connection", (socket) => {
   console.log("🔌 Client connected");
 
-  socket.on("join-room", ({ roomId, userName }) => {
-    console.log(`👥 ${userName} joined room ${roomId}`);
-    socket.join(roomId);
 
-    if (!rooms[roomId]) rooms[roomId] = [];
-    if (!rooms[roomId].includes(userName)) {
-      rooms[roomId].push(userName);
+  socket.on("join-room", ({ roomId, userName }) => {
+    const room = roomId.toUpperCase();
+    console.log(`👥 ${userName} joined room ${room}`);
+    socket.join(room);
+
+    if (!rooms[room]) rooms[room] = [];
+    if (!rooms[room].includes(userName)) {
+      rooms[room].push(userName);
     }
 
     // Gửi danh sách user trong phòng cho tất cả client trong room
-    io.to(roomId).emit("room-users", rooms[roomId]);
+    io.to(room).emit("room-users", rooms[room]);
   });
 
   socket.on("solve", ({ roomId, userName, time }) => {
+    const room = roomId.toUpperCase();
     console.log(`🧩 ${userName} solved in ${time}ms`);
     // Gửi kết quả cho đối thủ
-    socket.to(roomId).emit("opponent-solve", { userName, time });
+    socket.to(room).emit("opponent-solve", { userName, time });
   });
 
   socket.on("disconnect", () => {
