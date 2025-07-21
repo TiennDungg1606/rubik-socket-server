@@ -4,7 +4,7 @@ const app = express();
 const port = 3001;
 
 // Lấy từ Stringee Dashboard
-const STRINGEE_PROJECT_ID = 'Y2426200';
+const STRINGEE_PROJECT_ID = '2426200';
 const STRINGEE_KEY_SID = 'SK.0.XOn3lmnKxqivxBa6BdkarOXhqsfXwXTN';
 const STRINGEE_KEY_SECRET = 'dVZ5RGE3ejZnNFRpVjNibDFHNUxBTG05aThvb0dk';
 
