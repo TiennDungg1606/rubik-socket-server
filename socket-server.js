@@ -65,26 +65,12 @@ io.on("connection", (socket) => {
     socket.to(room).emit("opponent-solve", { userName, time });
   });
 
-  // --- WebRTC Signaling Events ---
-  // Notify others in the room that this client is ready for peer connection
-  socket.on("ready-for-peer", ({ roomId, userName }) => {
-    const room = roomId.toUpperCase();
-    // Broadcast to everyone else in the room
-    socket.to(room).emit("ready-for-peer", { userName });
-  });
 
-  // Relay peer-initiate event (offer/initiate connection)
-  socket.on("peer-initiate", ({ roomId, signal, from }) => {
+  // Relay all WebRTC signaling messages (simple-peer expects 'signal')
+  socket.on("signal", ({ roomId, userName, signal }) => {
     const room = roomId.toUpperCase();
-    // Send to everyone else in the room
-    socket.to(room).emit("peer-initiate", { signal, from });
-  });
-
-  // Relay peer-signal event (ICE candidates, answers, etc.)
-  socket.on("peer-signal", ({ roomId, signal, from }) => {
-    const room = roomId.toUpperCase();
-    // Send to everyone else in the room
-    socket.to(room).emit("peer-signal", { signal, from });
+    // Gửi cho tất cả client khác trong phòng
+    socket.to(room).emit("signal", { userName, signal });
   });
 
   socket.on("disconnect", () => {
