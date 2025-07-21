@@ -41,7 +41,7 @@ io.on("connection", (socket) => {
 
   socket.on("join-room", ({ roomId, userName }) => {
     const room = roomId.toUpperCase();
-    console.log(`👥 ${userName} joined room ${room}`);
+    console.log(`👥 ${userName} joined room ${room} (socket.id: ${socket.id})`);
     socket.join(room);
     socket.data = socket.data || {};
     socket.data.room = room;
@@ -54,6 +54,8 @@ io.on("connection", (socket) => {
 
     io.to(room).emit("room-users", rooms[room]);
     console.log("Current users in room", room, rooms[room]);
+    // In ra toàn bộ rooms object để debug
+    console.log("All rooms:", JSON.stringify(rooms));
   });
 
   socket.on("solve", ({ roomId, userName, time }) => {
