@@ -78,10 +78,11 @@ io.on("connection", (socket) => {
     const room = socket.data?.room;
     const userName = socket.data?.userName;
     if (room && userName && rooms[room]) {
-      rooms[room] = rooms[room].filter(u => u !== userName);
+      // Loại bỏ userName và mọi giá trị null/undefined khỏi mảng
+      rooms[room] = rooms[room].filter(u => u && u !== userName);
       io.to(room).emit("room-users", rooms[room]);
       console.log("Current users in room", room, rooms[room]);
-      // Xóa key nếu mảng rỗng
+      // Xóa key nếu mảng rỗng (không còn user thực)
       if (rooms[room].length === 0) {
         delete rooms[room];
         console.log(`Room ${room} deleted from rooms object (empty).`);
