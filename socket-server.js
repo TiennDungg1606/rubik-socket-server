@@ -81,6 +81,11 @@ io.on("connection", (socket) => {
       rooms[room] = rooms[room].filter(u => u !== userName);
       io.to(room).emit("room-users", rooms[room]);
       console.log("Current users in room", room, rooms[room]);
+      // Xóa key nếu mảng rỗng
+      if (rooms[room].length === 0) {
+        delete rooms[room];
+        console.log(`Room ${room} deleted from rooms object (empty).`);
+      }
     }
   });
 });
