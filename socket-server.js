@@ -77,15 +77,24 @@ io.on("connection", (socket) => {
     console.log("❌ Client disconnected");
     const room = socket.data?.room;
     const userName = socket.data?.userName;
-    if (room && userName && rooms[room]) {
-      // Loại bỏ userName và mọi giá trị null/undefined khỏi mảng
-      rooms[room] = rooms[room].filter(u => u && u !== userName);
+    if (room && rooms[room]) {
+      // Loại bỏ userName và mọi giá trị null/undefined/"" khỏi mảng
+      rooms[room] = rooms[room].filter(u => u && u !== userName && u !== "");
       io.to(room).emit("room-users", rooms[room]);
       console.log("Current users in room", room, rooms[room]);
-      // Xóa key nếu mảng rỗng (không còn user thực)
-      if (rooms[room].length === 0) {
+      // Lọc triệt để trước khi kiểm tra xóa phòng
+      const filteredUsers = rooms[room].filter(u => u);
+      if (filteredUsers.length === 0) {
         delete rooms[room];
         console.log(`Room ${room} deleted from rooms object (empty).`);
+      }
+    }
+    // Kiểm tra và xóa phòng rỗng ("") nếu chỉ chứa null/""
+    if (rooms[""]) {
+      const filteredEmptyRoom = rooms[""].filter(u => u);
+      if (filteredEmptyRoom.length === 0) {
+        delete rooms[""];
+        console.log('Room "" deleted from rooms object (empty).');
       }
     }
   });
