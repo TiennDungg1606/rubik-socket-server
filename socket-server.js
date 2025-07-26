@@ -24,7 +24,16 @@ function generateScramble() {
 }
 
 // Tạo HTTP server để phục vụ REST API và Socket.io
+const allowedOrigin = "https://rubik-app-buhb.vercel.app";
 const server = http.createServer((req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
   const parsed = url.parse(req.url, true);
   // REST endpoint: /room-users/:roomId
   if (parsed.pathname && parsed.pathname.startsWith("/room-users/")) {
