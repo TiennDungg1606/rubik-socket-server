@@ -38,6 +38,12 @@ const server = http.createServer((req, res) => {
     }
     return;
   }
+  // REST endpoint: /active-rooms
+  if (parsed.pathname === "/active-rooms") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(Object.keys(rooms)));
+    return;
+  }
   // Default: 404
   res.writeHead(404);
   res.end();
