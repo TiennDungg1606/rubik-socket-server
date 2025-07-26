@@ -74,6 +74,11 @@ io.on("connection", (socket) => {
 
   socket.on("join-room", ({ roomId, userName }) => {
     const room = roomId.toUpperCase();
+    // Không cho phép userName rỗng hoặc không hợp lệ
+    if (!userName || typeof userName !== "string" || !userName.trim()) {
+      console.log(`❌ Không cho phép join-room với userName rỗng hoặc không hợp lệ: '${userName}'`);
+      return;
+    }
     console.log(`👥 ${userName} joined room ${room} (socket.id: ${socket.id})`);
     socket.join(room);
     socket.data = socket.data || {};
