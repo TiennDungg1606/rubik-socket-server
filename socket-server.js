@@ -72,22 +72,24 @@ io.on("connection", (socket) => {
   console.log("🔌 Client connected");
 
 
-  socket.on("join-room", ({ roomId, userName }) => {
+  socket.on("join-room", ({ roomId, userId, userName }) => {
     const room = roomId.toUpperCase();
-    // Không cho phép userName rỗng hoặc không hợp lệ
-    if (!userName || typeof userName !== "string" || !userName.trim()) {
-      console.log(`❌ Không cho phép join-room với userName rỗng hoặc không hợp lệ: '${userName}'`);
+    // Không cho phép userName hoặc userId rỗng hoặc không hợp lệ
+    if (!userName || typeof userName !== "string" || !userName.trim() || !userId || typeof userId !== "string" || !userId.trim()) {
+      console.log(`❌ Không cho phép join-room với userName/userId rỗng hoặc không hợp lệ: '${userName}' '${userId}'`);
       return;
     }
-    console.log(`👥 ${userName} joined room ${room} (socket.id: ${socket.id})`);
+    console.log(`👥 ${userName} (${userId}) joined room ${room} (socket.id: ${socket.id})`);
     socket.join(room);
     socket.data = socket.data || {};
     socket.data.room = room;
     socket.data.userName = userName;
+    socket.data.userId = userId;
 
     if (!rooms[room]) rooms[room] = [];
-    if (!rooms[room].includes(userName)) {
-      rooms[room].push(userName);
+    // Kiểm tra trùng userId
+    if (!rooms[room].some(u => u.userId === userId)) {
+      rooms[room].push({ userId, userName });
     }
 
     io.to(room).emit("room-users", rooms[room]);
@@ -108,14 +110,13 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("solve", ({ roomId, userName, time }) => {
+  socket.on("solve", ({ roomId, userId, userName, time }) => {
     const room = roomId.toUpperCase();
-    console.log(`🧩 ${userName} solved in ${time}ms`);
+    console.log(`🧩 ${userName} (${userId}) solved in ${time}ms`);
     // Gửi kết quả cho đối thủ
-    socket.to(room).emit("opponent-solve", { userName, time });
+    socket.to(room).emit("opponent-solve", { userId, userName, time });
 
     // Quản lý lượt giải để gửi scramble tiếp theo
-    // Tạo biến lưu số lượt giải của từng phòng
     if (!socket.server.solveCount) socket.server.solveCount = {};
     if (!socket.server.solveCount[room]) socket.server.solveCount[room] = 0;
     socket.server.solveCount[room]++;
@@ -131,19 +132,19 @@ io.on("connection", (socket) => {
 
 
   // Relay all WebRTC signaling messages (simple-peer expects 'signal')
-  socket.on("signal", ({ roomId, userName, signal }) => {
+  socket.on("signal", ({ roomId, userId, userName, signal }) => {
     const room = roomId.toUpperCase();
     // Gửi cho tất cả client khác trong phòng
-    socket.to(room).emit("signal", { userName, signal });
+    socket.to(room).emit("signal", { userId, userName, signal });
   });
 
   socket.on("disconnect", () => {
     console.log("❌ Client disconnected");
     const room = socket.data?.room;
-    const userName = socket.data?.userName;
+    const userId = socket.data?.userId;
     if (room && rooms[room]) {
-      // Loại bỏ userName và mọi giá trị null/undefined/"" khỏi mảng
-      rooms[room] = rooms[room].filter(u => u && u !== userName && u !== "");
+      // Loại bỏ userId và mọi giá trị null/undefined/"" khỏi mảng
+      rooms[room] = rooms[room].filter(u => u && u.userId !== userId && u.userId !== "");
       io.to(room).emit("room-users", rooms[room]);
       console.log("Current users in room", room, rooms[room]);
       // Lọc triệt để trước khi kiểm tra xóa phòng
@@ -157,7 +158,7 @@ io.on("connection", (socket) => {
     }
     // Kiểm tra và xóa phòng rỗng ("") nếu chỉ chứa null/""
     if (rooms[""]) {
-      const filteredEmptyRoom = rooms[""].filter(u => u);
+      const filteredEmptyRoom = rooms[""]?.filter(u => u);
       if (filteredEmptyRoom.length === 0) {
         delete rooms[""];
         delete scrambles[""];
