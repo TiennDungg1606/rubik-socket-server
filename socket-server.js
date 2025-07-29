@@ -131,6 +131,15 @@ io.on("connection", (socket) => {
   });
 
 
+
+  // Relay camera toggle event to other users in the room
+  socket.on("user-cam-toggle", (data) => {
+    if (!data || !data.roomId) return;
+    const room = data.roomId.toUpperCase();
+    // Gửi cho tất cả client khác trong phòng
+    socket.to(room).emit("user-cam-toggle", data);
+  });
+
   // Relay all WebRTC signaling messages (simple-peer expects 'signal')
   socket.on("signal", ({ roomId, userId, userName, signal }) => {
     const room = roomId.toUpperCase();
