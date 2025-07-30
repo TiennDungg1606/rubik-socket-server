@@ -72,6 +72,10 @@ io.on("connection", (socket) => {
   console.log("🔌 Client connected");
 
 
+  // Map lưu timeout tự hủy phòng nếu chỉ có 1 người (chủ phòng) sau 5 phút
+  if (!global.roomTimeouts) global.roomTimeouts = {};
+  const roomTimeouts = global.roomTimeouts;
+
   socket.on("join-room", ({ roomId, userId, userName }) => {
     const room = roomId.toUpperCase();
     // Không cho phép userName hoặc userId rỗng hoặc không hợp lệ
@@ -108,6 +112,36 @@ io.on("connection", (socket) => {
     if (scrambles[room] && scrambles[room].length > 0) {
       io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
     }
+
+    // --- Logic tự hủy phòng nếu chỉ có 1 người là chủ phòng sau 5 phút ---
+    // Nếu phòng chỉ có 1 người, đặt timeout 5 phút
+    if (rooms[room].length === 1) {
+      // Nếu đã có timeout cũ thì clear
+      if (roomTimeouts[room]) {
+        clearTimeout(roomTimeouts[room]);
+      }
+      // Đặt timeout mới
+      roomTimeouts[room] = setTimeout(() => {
+        // Kiểm tra lại lần cuối: nếu phòng vẫn chỉ có 1 người
+        if (rooms[room] && rooms[room].length === 1) {
+          console.log(`⏰ Phòng ${room} chỉ có 1 người sau 5 phút, tự động xóa.`);
+          delete rooms[room];
+          delete scrambles[room];
+          if (socket.server.solveCount) delete socket.server.solveCount[room];
+          delete roomTimeouts[room];
+          io.to(room).emit("room-users", []);
+        }
+      }, 5 * 60 * 1000); // 5 phút
+      console.log(`⏳ Đặt timeout tự hủy phòng ${room} sau 5 phút nếu không có ai vào thêm.`);
+    } else {
+      // Nếu có thêm người vào, hủy timeout tự hủy phòng
+      if (roomTimeouts[room]) {
+        clearTimeout(roomTimeouts[room]);
+        delete roomTimeouts[room];
+        console.log(`❌ Hủy timeout tự hủy phòng ${room} vì đã có thêm người.`);
+      }
+    }
+    // --- END ---
   });
 
   socket.on("solve", ({ roomId, userId, userName, time }) => {
@@ -162,7 +196,35 @@ io.on("connection", (socket) => {
         delete rooms[room];
         delete scrambles[room];
         if (socket.server.solveCount) delete socket.server.solveCount[room];
+        if (global.roomTimeouts && global.roomTimeouts[room]) {
+          clearTimeout(global.roomTimeouts[room]);
+          delete global.roomTimeouts[room];
+        }
         console.log(`Room ${room} deleted from rooms object (empty).`);
+      } else if (filteredUsers.length === 1) {
+        // Nếu chỉ còn 1 người sau khi disconnect, đặt lại timeout tự hủy phòng
+        if (global.roomTimeouts) {
+          if (global.roomTimeouts[room]) {
+            clearTimeout(global.roomTimeouts[room]);
+          }
+          global.roomTimeouts[room] = setTimeout(() => {
+            if (rooms[room] && rooms[room].length === 1) {
+              console.log(`⏰ Phòng ${room} chỉ còn 1 người sau disconnect, tự động xóa sau 5 phút.`);
+              delete rooms[room];
+              delete scrambles[room];
+              if (socket.server.solveCount) delete socket.server.solveCount[room];
+              delete global.roomTimeouts[room];
+              io.to(room).emit("room-users", []);
+            }
+          }, 5 * 60 * 1000);
+          console.log(`⏳ Đặt timeout tự hủy phòng ${room} sau 5 phút vì chỉ còn 1 người.`);
+        }
+      } else {
+        // Nếu còn nhiều hơn 1 người, hủy timeout tự hủy phòng nếu có
+        if (global.roomTimeouts && global.roomTimeouts[room]) {
+          clearTimeout(global.roomTimeouts[room]);
+          delete global.roomTimeouts[room];
+        }
       }
     }
     // Kiểm tra và xóa phòng rỗng ("") nếu chỉ chứa null/""
@@ -172,6 +234,10 @@ io.on("connection", (socket) => {
         delete rooms[""];
         delete scrambles[""];
         if (socket.server.solveCount) delete socket.server.solveCount[""];
+        if (global.roomTimeouts && global.roomTimeouts[""]) {
+          clearTimeout(global.roomTimeouts[""]);
+          delete global.roomTimeouts[""];
+        }
         console.log('Room "" deleted from rooms object (empty).');
       }
     }
