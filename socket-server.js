@@ -144,6 +144,14 @@ io.on("connection", (socket) => {
     // --- END ---
   });
 
+  // Chat event: relay chat message to all users in the room
+  socket.on("chat", ({ roomId, userId, userName, message }) => {
+    const room = roomId.toUpperCase();
+    if (!room || !userId || !userName || !message) return;
+    // Gửi tin nhắn cho tất cả user trong phòng
+    io.to(room).emit("chat", { userId, userName, message });
+  });
+
   socket.on("solve", ({ roomId, userId, userName, time }) => {
     const room = roomId.toUpperCase();
     console.log(`🧩 ${userName} (${userId}) solved in ${time}ms`);
