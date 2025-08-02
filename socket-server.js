@@ -35,9 +35,16 @@ function generateLocalScrambles() {
 }
 
 // Tạo HTTP server để phục vụ REST API và Socket.io
-const allowedOrigin = "https://rubik-app-buhb.vercel.app";
+const allowedOrigins = [
+  "https://rubik-app-buhb.vercel.app",
+  "http://localhost:3000",
+  "http://localhost:3001"
+];
 const server = http.createServer((req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") {
