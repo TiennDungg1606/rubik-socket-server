@@ -2,65 +2,9 @@
 const { Server } = require("socket.io");
 const http = require("http");
 const url = require("url");
-const https = require("https");
 
 const rooms = {}; // Quản lý người chơi trong từng room
 const scrambles = {}; // Quản lý scramble cho từng room
-
-// Function để lấy scramble từ scramble.cubing.net
-async function fetchScrambleFromCubingNet() {
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: 'scramble.cubing.net',
-      port: 443,
-      path: '/api/v0/scramble/333',
-      method: 'GET'
-    };
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      
-      res.on('data', (chunk) => {
-        data += chunk;
-      });
-      
-      res.on('end', () => {
-        try {
-          const result = JSON.parse(data);
-          resolve(result.scramble);
-        } catch (error) {
-          console.error('Error parsing scramble response:', error);
-          reject(error);
-        }
-      });
-    });
-
-    req.on('error', (error) => {
-      console.error('Error fetching scramble:', error);
-      reject(error);
-    });
-
-    req.end();
-  });
-}
-
-// Function để lấy 5 scramble từ scramble.cubing.net
-async function fetchScramblesFromCubingNet() {
-  const scramblePromises = [];
-  for (let i = 0; i < 5; i++) {
-    scramblePromises.push(fetchScrambleFromCubingNet());
-  }
-  
-  try {
-    const scrambles = await Promise.all(scramblePromises);
-    console.log('✅ Fetched 5 scrambles from scramble.cubing.net:', scrambles);
-    return scrambles;
-  } catch (error) {
-    console.error('❌ Error fetching scrambles from cubing.net, falling back to local generation:', error);
-    // Fallback to local generation if API fails
-    return generateLocalScrambles();
-  }
-}
 
 function generateScramble() {
   const moves = ["U", "D", "L", "R", "F", "B"];
@@ -80,12 +24,13 @@ function generateScramble() {
   return scramble.join(" ");
 }
 
-// Function để tạo scramble local (fallback)
+// Function để tạo 5 scramble local
 function generateLocalScrambles() {
   const localScrambles = [];
   for (let i = 0; i < 5; i++) {
     localScrambles.push(generateScramble());
   }
+  console.log('✅ Generated 5 local scrambles:', localScrambles);
   return localScrambles;
 }
 
@@ -167,27 +112,16 @@ io.on("connection", (socket) => {
     // In ra toàn bộ rooms object để debug
     console.log("All rooms:", JSON.stringify(rooms));
 
-    // Nếu phòng chưa có scramble thì lấy từ scramble.cubing.net
+    // Nếu phòng chưa có scramble thì tạo 5 scramble local
     if (!scrambles[room]) {
       scrambles[room] = [];
-      // Lấy 5 scramble từ scramble.cubing.net
-      fetchScramblesFromCubingNet().then(scrambleList => {
-        scrambles[room] = scrambleList;
-        // Gửi scramble đầu tiên cho cả phòng
-        if (scrambles[room] && scrambles[room].length > 0) {
-          io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
-        }
-      }).catch(error => {
-        console.error('Error fetching scrambles for room', room, error);
-        // Fallback to local generation
-        for (let i = 0; i < 5; i++) {
-          scrambles[room].push(generateScramble());
-        }
-        // Gửi scramble đầu tiên cho cả phòng
-        if (scrambles[room] && scrambles[room].length > 0) {
-          io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
-        }
-      });
+      // Tạo 5 scramble local
+      const scrambleList = generateLocalScrambles();
+      scrambles[room] = scrambleList;
+      // Gửi scramble đầu tiên cho cả phòng
+      if (scrambles[room] && scrambles[room].length > 0) {
+        io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
+      }
     }
     // Gửi scramble đầu tiên nếu đã có sẵn
     if (scrambles[room] && scrambles[room].length > 0) {
