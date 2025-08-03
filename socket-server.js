@@ -115,7 +115,6 @@ io.on("connection", (socket) => {
     // Không còn trường isSpectator
 
     if (!rooms[room]) rooms[room] = [];
-    
     // Chỉ cho phép tối đa 2 người chơi trong phòng
     if (rooms[room].length >= 2) {
       socket.emit("room-full", { message: "Phòng đã đủ 2 người chơi" });
@@ -175,6 +174,19 @@ io.on("connection", (socket) => {
         delete roomTimeouts[room];
         console.log(`❌ Hủy timeout tự hủy phòng ${room} vì đã có thêm người chơi.`);
       }
+      // Nếu vừa đủ 2 người chơi, reset kết quả và scramble cho cả phòng
+      if (rooms[room].length === 2) {
+        // Reset solveCount về 0
+        if (socket.server.solveCount) socket.server.solveCount[room] = 0;
+        // Sinh lại 5 scramble mới cho phòng này
+        scrambles[room] = generateLocalScrambles();
+        // Gửi scramble đầu tiên cho cả phòng
+        if (scrambles[room] && scrambles[room].length > 0) {
+          io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
+        }
+        // Gửi sự kiện reset kết quả cho cả phòng
+        io.to(room).emit("room-reset");
+      }
     }
     // --- END ---
   });
@@ -219,12 +231,12 @@ socket.on("rematch-accepted", ({ roomId }) => {
   scrambles[room] = generateLocalScrambles();
   // Reset solveCount về 0
   if (socket.server.solveCount) socket.server.solveCount[room] = 0;
-  // Gửi scramble đầu tiên cho cả phòng
+  // Gửi thông báo đồng ý tái đấu cho tất cả client trong phòng trước (để client reset state)
+  io.to(room).emit("rematch-accepted");
+  // Sau đó gửi scramble đầu tiên cho cả phòng
   if (scrambles[room] && scrambles[room].length > 0) {
     io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
   }
-  // Gửi thông báo đồng ý tái đấu cho tất cả client khác trong phòng
-  socket.to(room).emit("rematch-accepted");
 });
 
   socket.on("rematch-declined", ({ roomId }) => {
