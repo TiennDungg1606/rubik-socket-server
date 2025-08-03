@@ -180,12 +180,12 @@ io.on("connection", (socket) => {
         if (socket.server.solveCount) socket.server.solveCount[room] = 0;
         // Sinh lại 5 scramble mới cho phòng này
         scrambles[room] = generateLocalScrambles();
-        // Gửi scramble đầu tiên cho cả phòng
+        // Gửi sự kiện reset kết quả cho cả phòng trước
+        io.to(room).emit("room-reset");
+        // Sau đó gửi scramble đầu tiên cho cả phòng
         if (scrambles[room] && scrambles[room].length > 0) {
           io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
         }
-        // Gửi sự kiện reset kết quả cho cả phòng
-        io.to(room).emit("room-reset");
       }
     }
     // --- END ---
