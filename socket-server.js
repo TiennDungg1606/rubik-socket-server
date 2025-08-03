@@ -72,18 +72,7 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify(Object.keys(rooms)));
     return;
   }
-  // REST endpoint: /room-spectators/:roomId
-  if (parsed.pathname && parsed.pathname.startsWith("/room-spectators/")) {
-    const roomId = parsed.pathname.split("/room-spectators/")[1]?.toUpperCase();
-    if (roomId && spectators[roomId]) {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(spectators[roomId]));
-    } else {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify([]));
-    }
-    return;
-  }
+  // Đã loại bỏ endpoint /room-spectators vì không còn logic spectator
   // Default: 404
   res.writeHead(404);
   res.end();
@@ -283,7 +272,18 @@ socket.on("rematch-accepted", ({ roomId }) => {
         }
         console.log(`Room ${room} deleted from rooms object (empty).`);
       } else if (filteredUsers.length === 1) {
-        // Nếu chỉ còn 1 người chơi sau khi disconnect, đặt lại timeout tự hủy phòng
+        // Nếu chỉ còn 1 người chơi sau khi disconnect, reset kết quả và scramble về ban đầu
+        // Reset solveCount về 0
+        if (socket.server.solveCount) socket.server.solveCount[room] = 0;
+        // Sinh lại 5 scramble mới cho phòng này
+        scrambles[room] = generateLocalScrambles();
+        // Gửi scramble đầu tiên cho người còn lại
+        if (scrambles[room] && scrambles[room].length > 0) {
+          io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
+        }
+        // Gửi sự kiện reset kết quả cho client còn lại
+        io.to(room).emit("room-reset");
+        // Đặt lại timeout tự hủy phòng như cũ
         if (global.roomTimeouts) {
           if (global.roomTimeouts[room]) {
             clearTimeout(global.roomTimeouts[room]);
