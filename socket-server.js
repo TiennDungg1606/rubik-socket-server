@@ -5,7 +5,7 @@ const url = require("url");
 
 const rooms = {}; // Quản lý người chơi trong từng room
 const scrambles = {}; // Quản lý scramble cho từng room
-const spectators = {}; // Quản lý người xem trong từng room
+// Đã loại bỏ logic người xem (spectator)
 
 function generateScramble() {
   const moves = ["U", "D", "L", "R", "F", "B"];
@@ -115,19 +115,7 @@ io.on("connection", (socket) => {
       return;
     }
     
-    // Kiểm tra giới hạn spectator (tối đa 5 người xem)
-    if (isSpectator) {
-      if (!spectators[room]) spectators[room] = [];
-      if (spectators[room].length >= 5) {
-        console.log(`❌ Phòng ${room} đã đạt giới hạn 5 người xem`);
-        socket.emit("room-full", { message: "Phòng đã đạt giới hạn 5 người xem" });
-        return;
-      }
-      // Kiểm tra trùng userId trong spectator
-      if (!spectators[room].some(u => u.userId === userId)) {
-        spectators[room].push({ userId, userName });
-      }
-    }
+    // Loại bỏ hoàn toàn logic spectator
     
     console.log(`👥 ${userName} (${userId}) joined room ${room} as ${isSpectator ? 'spectator' : 'player'} (socket.id: ${socket.id})`);
     socket.join(room);
@@ -135,21 +123,23 @@ io.on("connection", (socket) => {
     socket.data.room = room;
     socket.data.userName = userName;
     socket.data.userId = userId;
-    socket.data.isSpectator = isSpectator;
+    // Không còn trường isSpectator
 
     if (!rooms[room]) rooms[room] = [];
     
-    // Chỉ thêm vào danh sách người chơi nếu không phải spectator
-    if (!isSpectator) {
-      // Kiểm tra trùng userId
-      if (!rooms[room].some(u => u.userId === userId)) {
-        rooms[room].push({ userId, userName });
-      }
+    // Chỉ cho phép tối đa 2 người chơi trong phòng
+    if (rooms[room].length >= 2) {
+      socket.emit("room-full", { message: "Phòng đã đủ 2 người chơi" });
+      return;
+    }
+    // Kiểm tra trùng userId
+    if (!rooms[room].some(u => u.userId === userId)) {
+      rooms[room].push({ userId, userName });
     }
 
     io.to(room).emit("room-users", rooms[room]);
     console.log("Current players in room", room, rooms[room]);
-    console.log("Current spectators in room", room, spectators[room] || []);
+    // Đã loại bỏ log spectator
     // In ra toàn bộ rooms object để debug
     console.log("All rooms:", JSON.stringify(rooms));
 
@@ -262,7 +252,6 @@ socket.on("rematch-accepted", ({ roomId }) => {
   socket.on("user-cam-toggle", (data) => {
     if (!data || !data.roomId) return;
     const room = data.roomId.toUpperCase();
-    // Gửi cho tất cả client khác trong phòng
     socket.to(room).emit("user-cam-toggle", data);
   });
 
@@ -277,29 +266,16 @@ socket.on("rematch-accepted", ({ roomId }) => {
     console.log("❌ Client disconnected");
     const room = socket.data?.room;
     const userId = socket.data?.userId;
-    const isSpectator = socket.data?.isSpectator;
-    
     if (room && rooms[room]) {
-      // Chỉ xóa khỏi danh sách người chơi nếu không phải spectator
-      if (!isSpectator) {
-        // Loại bỏ userId và mọi giá trị null/undefined/"" khỏi mảng
-        rooms[room] = rooms[room].filter(u => u && u.userId !== userId && u.userId !== "");
-        io.to(room).emit("room-users", rooms[room]);
-        console.log("Current players in room", room, rooms[room]);
-      }
-      
-      // Xóa spectator khỏi danh sách spectator
-      if (isSpectator && spectators[room]) {
-        spectators[room] = spectators[room].filter(u => u && u.userId !== userId && u.userId !== "");
-        console.log("Current spectators in room", room, spectators[room]);
-      }
-      
+      // Loại bỏ userId và mọi giá trị null/undefined/"" khỏi mảng
+      rooms[room] = rooms[room].filter(u => u && u.userId !== userId && u.userId !== "");
+      io.to(room).emit("room-users", rooms[room]);
+      console.log("Current players in room", room, rooms[room]);
       // Lọc triệt để trước khi kiểm tra xóa phòng
       const filteredUsers = rooms[room].filter(u => u);
       if (filteredUsers.length === 0) {
         delete rooms[room];
         delete scrambles[room];
-        delete spectators[room];
         if (socket.server.solveCount) delete socket.server.solveCount[room];
         if (global.roomTimeouts && global.roomTimeouts[room]) {
           clearTimeout(global.roomTimeouts[room]);
@@ -317,7 +293,6 @@ socket.on("rematch-accepted", ({ roomId }) => {
               console.log(`⏰ Phòng ${room} chỉ còn 1 người chơi sau disconnect, tự động xóa sau 5 phút.`);
               delete rooms[room];
               delete scrambles[room];
-              delete spectators[room];
               if (socket.server.solveCount) delete socket.server.solveCount[room];
               delete global.roomTimeouts[room];
               io.to(room).emit("room-users", []);
@@ -339,7 +314,6 @@ socket.on("rematch-accepted", ({ roomId }) => {
       if (filteredEmptyRoom.length === 0) {
         delete rooms[""];
         delete scrambles[""];
-        delete spectators[""];
         if (socket.server.solveCount) delete socket.server.solveCount[""];
         if (global.roomTimeouts && global.roomTimeouts[""]) {
           clearTimeout(global.roomTimeouts[""]);
