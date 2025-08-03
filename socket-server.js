@@ -234,11 +234,19 @@ io.on("connection", (socket) => {
     socket.to(room).emit("rematch-request", { fromUserId });
   });
 
-  socket.on("rematch-accepted", ({ roomId }) => {
-    const room = roomId.toUpperCase();
-    // Gửi thông báo đồng ý tái đấu cho tất cả client khác trong phòng
-    socket.to(room).emit("rematch-accepted");
-  });
+socket.on("rematch-accepted", ({ roomId }) => {
+  const room = roomId.toUpperCase();
+  // Sinh lại 5 scramble mới cho phòng này
+  scrambles[room] = generateLocalScrambles();
+  // Reset solveCount về 0
+  if (socket.server.solveCount) socket.server.solveCount[room] = 0;
+  // Gửi scramble đầu tiên cho cả phòng
+  if (scrambles[room] && scrambles[room].length > 0) {
+    io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
+  }
+  // Gửi thông báo đồng ý tái đấu cho tất cả client khác trong phòng
+  socket.to(room).emit("rematch-accepted");
+});
 
   socket.on("rematch-declined", ({ roomId }) => {
     const room = roomId.toUpperCase();
