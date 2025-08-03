@@ -1,33 +1,4 @@
 
-// ...existing code...
-
-io.on("connection", (socket) => {
-  console.log("🔌 Client connected");
-
-  // ...existing code...
-
-  // Sự kiện tái đấu: tạo lại 5 scramble mới và reset biến đếm lượt giải
-  socket.on("rematch", ({ roomId, userId }) => {
-    const room = roomId.toUpperCase();
-    // Tạo lại 5 scramble mới
-    scrambles[room] = generateLocalScrambles();
-    // Reset biến đếm lượt giải
-    if (!socket.server.solveCount) socket.server.solveCount = {};
-    socket.server.solveCount[room] = 0;
-    // Gửi scramble đầu tiên cho cả phòng
-    if (scrambles[room] && scrambles[room].length > 0) {
-      io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
-    }
-    // Gửi sự kiện rematch cho tất cả client để reset state phía client
-    // Xác định chủ phòng (người đầu tiên trong rooms[room])
-    const creatorId = rooms[room] && rooms[room][0] ? rooms[room][0].userId : userId;
-    io.to(room).emit("rematch", { roomId, creatorId });
-    console.log(`🔄 Rematch in room ${room}: new scrambles generated, solveCount reset.`);
-  });
-
-  // ...existing code...
-});
-
 const { Server } = require("socket.io");
 const http = require("http");
 const url = require("url");
