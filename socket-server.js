@@ -226,7 +226,27 @@ io.on("connection", (socket) => {
         io.to(room).emit("scramble", { scramble: scrambles[room][idx], index: idx });
       }
     }
+  })
+    // --- Rematch events ---
+  socket.on("rematch-request", ({ roomId, fromUserId }) => {
+    const room = roomId.toUpperCase();
+    // Gửi yêu cầu tái đấu cho tất cả client khác trong phòng
+    socket.to(room).emit("rematch-request", { fromUserId });
   });
+
+  socket.on("rematch-accepted", ({ roomId }) => {
+    const room = roomId.toUpperCase();
+    // Gửi thông báo đồng ý tái đấu cho tất cả client khác trong phòng
+    socket.to(room).emit("rematch-accepted");
+  });
+
+  socket.on("rematch-declined", ({ roomId }) => {
+    const room = roomId.toUpperCase();
+    // Gửi thông báo từ chối tái đấu cho tất cả client khác trong phòng
+    socket.to(room).emit("rematch-declined");
+  });
+  
+  
 
 
 
