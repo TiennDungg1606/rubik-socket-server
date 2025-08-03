@@ -1,3 +1,11 @@
+
+// ...existing code...
+
+io.on("connection", (socket) => {
+  console.log("🔌 Client connected");
+
+  // ...existing code...
+
   // Sự kiện tái đấu: tạo lại 5 scramble mới và reset biến đếm lượt giải
   socket.on("rematch", ({ roomId, userId }) => {
     const room = roomId.toUpperCase();
@@ -16,6 +24,9 @@
     io.to(room).emit("rematch", { roomId, creatorId });
     console.log(`🔄 Rematch in room ${room}: new scrambles generated, solveCount reset.`);
   });
+
+  // ...existing code...
+});
 
 const { Server } = require("socket.io");
 const http = require("http");
