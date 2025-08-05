@@ -5,9 +5,10 @@ const url = require("url");
 
 const rooms = {}; // Quản lý người chơi trong từng room
 const scrambles = {}; // Quản lý scramble cho từng room
+const roomsMeta = {}; // Quản lý meta phòng: event, displayName, password
 // Đã loại bỏ logic người xem (spectator)
 
-function generateScramble() {
+function generateScramble3x3() {
   const moves = ["U", "D", "L", "R", "F", "B"];
   const suffix = ["", "'", "2"];
   let scramble = [];
@@ -25,15 +26,33 @@ function generateScramble() {
   return scramble.join(" ");
 }
 
-// Function để tạo 5 scramble local
-function generateLocalScrambles() {
+function generateScramble2x2() {
+  const moves = ["U", "D", "L", "R", "F", "B"];
+  const suffix = ["", "'", "2"];
+  let scramble = [];
+  let prev = "";
+  for (let i = 0; i < 9; i++) {
+    let m;
+    do {
+      m = moves[Math.floor(Math.random() * moves.length)];
+    } while (m === prev);
+    prev = m;
+    scramble.push(m + suffix[Math.floor(Math.random() * 3)]);
+  }
+  return scramble.join(" ");
+}
+
+function generateLocalScrambles(event = "3x3") {
   const localScrambles = [];
   for (let i = 0; i < 5; i++) {
-    localScrambles.push(generateScramble());
+    if (event === "2x2") localScrambles.push(generateScramble2x2());
+    else localScrambles.push(generateScramble3x3());
   }
-  console.log('✅ Generated 5 local scrambles:', localScrambles);
+  console.log(`✅ Generated 5 local scrambles for ${event}:`, localScrambles);
   return localScrambles;
 }
+
+
 
 // Tạo HTTP server để phục vụ REST API và Socket.io
 const allowedOrigins = [
@@ -67,9 +86,23 @@ const server = http.createServer((req, res) => {
     return;
   }
   // REST endpoint: /active-rooms
+  // REST endpoint: /active-rooms
   if (parsed.pathname === "/active-rooms") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(Object.keys(rooms)));
+    // Trả về danh sách phòng kèm meta
+    const result = Object.keys(rooms).map(roomId => ({
+      roomId,
+      meta: roomsMeta[roomId] || {}
+    }));
+    res.end(JSON.stringify(result));
+    return;
+  }
+
+  // REST endpoint: /room-meta/:roomId
+  if (parsed.pathname && parsed.pathname.startsWith("/room-meta/")) {
+    const roomId = parsed.pathname.split("/room-meta/")[1]?.toUpperCase();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(roomsMeta[roomId] || {}));
     return;
   }
   // Đã loại bỏ endpoint /room-spectators vì không còn logic spectator
@@ -96,7 +129,7 @@ io.on("connection", (socket) => {
   if (!global.roomTimeouts) global.roomTimeouts = {};
   const roomTimeouts = global.roomTimeouts;
 
-  socket.on("join-room", ({ roomId, userId, userName, isSpectator = false }) => {
+socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, displayName, password }) => {
     const room = roomId.toUpperCase();
     // Không cho phép userName hoặc userId rỗng hoặc không hợp lệ
     if (!userName || typeof userName !== "string" || !userName.trim() || !userId || typeof userId !== "string" || !userId.trim()) {
@@ -115,6 +148,14 @@ io.on("connection", (socket) => {
     // Không còn trường isSpectator
 
     if (!rooms[room]) rooms[room] = [];
+    // Nếu là chủ phòng (người đầu tiên), lưu meta nếu có
+    if (rooms[room].length === 0) {
+      roomsMeta[room] = {
+        event: event || "3x3",
+        displayName: displayName || room,
+        password: password || ""
+      };
+    }
     // Chỉ cho phép tối đa 2 người chơi trong phòng
     if (rooms[room].length >= 2) {
       socket.emit("room-full", { message: "Phòng đã đủ 2 người chơi" });
@@ -131,13 +172,12 @@ io.on("connection", (socket) => {
     // In ra toàn bộ rooms object để debug
     console.log("All rooms:", JSON.stringify(rooms));
 
-    // Nếu phòng chưa có scramble thì tạo 5 scramble local
+    // Nếu phòng chưa có scramble thì tạo 5 scramble local đúng thể loại
     if (!scrambles[room]) {
       scrambles[room] = [];
-      // Tạo 5 scramble local
-      const scrambleList = generateLocalScrambles();
+      const eventType = roomsMeta[room]?.event || "3x3";
+      const scrambleList = generateLocalScrambles(eventType);
       scrambles[room] = scrambleList;
-      // Gửi scramble đầu tiên cho cả phòng
       if (scrambles[room] && scrambles[room].length > 0) {
         io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
       }
@@ -178,11 +218,10 @@ io.on("connection", (socket) => {
       if (rooms[room].length === 2) {
         // Reset solveCount về 0
         if (socket.server.solveCount) socket.server.solveCount[room] = 0;
-        // Sinh lại 5 scramble mới cho phòng này
-        scrambles[room] = generateLocalScrambles();
-        // Gửi sự kiện reset kết quả cho cả phòng trước
+        // Sinh lại 5 scramble mới cho phòng này đúng thể loại
+        const eventType = roomsMeta[room]?.event || "3x3";
+        scrambles[room] = generateLocalScrambles(eventType);
         io.to(room).emit("room-reset");
-        // Sau đó gửi scramble đầu tiên cho cả phòng
         if (scrambles[room] && scrambles[room].length > 0) {
           io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
         }
@@ -227,13 +266,12 @@ io.on("connection", (socket) => {
 
 socket.on("rematch-accepted", ({ roomId }) => {
   const room = roomId.toUpperCase();
-  // Sinh lại 5 scramble mới cho phòng này
-  scrambles[room] = generateLocalScrambles();
+  // Sinh lại 5 scramble mới cho phòng này đúng thể loại
+  const eventType = roomsMeta[room]?.event || "3x3";
+  scrambles[room] = generateLocalScrambles(eventType);
   // Reset solveCount về 0
   if (socket.server.solveCount) socket.server.solveCount[room] = 0;
-  // Gửi thông báo đồng ý tái đấu cho tất cả client trong phòng trước (để client reset state)
   io.to(room).emit("rematch-accepted");
-  // Sau đó gửi scramble đầu tiên cho cả phòng
   if (scrambles[room] && scrambles[room].length > 0) {
     io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
   }
