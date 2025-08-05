@@ -27,7 +27,7 @@ function generateScramble3x3() {
 }
 
 function generateScramble2x2() {
-  const moves = ["U", "D", "L", "R", "F", "B"];
+  const moves = ["U", "R", "F"];
   const suffix = ["", "'", "2"];
   let scramble = [];
   let prev = "";
@@ -147,6 +147,7 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
     socket.data.userId = userId;
     // Không còn trường isSpectator
 
+
     if (!rooms[room]) rooms[room] = [];
     // Nếu là chủ phòng (người đầu tiên), lưu meta nếu có
     if (rooms[room].length === 0) {
@@ -155,6 +156,13 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
         displayName: displayName || room,
         password: password || ""
       };
+    } else {
+      // Nếu không phải chủ phòng, kiểm tra password nếu phòng có đặt mật khẩu
+      const roomPassword = roomsMeta[room]?.password || "";
+      if (roomPassword && password !== roomPassword) {
+        socket.emit("wrong-password", { message: "Sai mật khẩu phòng!" });
+        return;
+      }
     }
     // Chỉ cho phép tối đa 2 người chơi trong phòng
     if (rooms[room].length >= 2) {
@@ -325,8 +333,9 @@ socket.on("rematch-accepted", ({ roomId }) => {
         // Nếu chỉ còn 1 người chơi sau khi disconnect, reset kết quả và scramble về ban đầu
         // Reset solveCount về 0
         if (socket.server.solveCount) socket.server.solveCount[room] = 0;
-        // Sinh lại 5 scramble mới cho phòng này
-        scrambles[room] = generateLocalScrambles();
+        // Lấy đúng event từ roomsMeta để sinh scramble phù hợp
+        const eventType = roomsMeta[room]?.event || "3x3";
+        scrambles[room] = generateLocalScrambles(eventType);
         // Gửi scramble đầu tiên cho người còn lại
         if (scrambles[room] && scrambles[room].length > 0) {
           io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
