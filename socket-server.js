@@ -150,12 +150,14 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
 
     if (!rooms[room]) rooms[room] = [];
     // Nếu là chủ phòng (người đầu tiên), lưu meta nếu có
+    let isNewRoom = false;
     if (rooms[room].length === 0) {
       roomsMeta[room] = {
         event: event || "3x3",
         displayName: displayName || room,
         password: password || ""
       };
+      isNewRoom = true;
     } else {
       // Nếu không phải chủ phòng, kiểm tra password nếu phòng có đặt mật khẩu
       const roomPassword = roomsMeta[room]?.password || "";
@@ -175,6 +177,10 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
     }
 
     io.to(room).emit("room-users", rooms[room]);
+    // Nếu là phòng mới vừa tạo, phát sự kiện cập nhật danh sách phòng cho tất cả client
+    if (isNewRoom) {
+      io.emit("update-active-rooms");
+    }
     console.log("Current players in room", room, rooms[room]);
     // Đã loại bỏ log spectator
     // In ra toàn bộ rooms object để debug
