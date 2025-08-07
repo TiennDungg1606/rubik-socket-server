@@ -242,6 +242,8 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
       }
     }
     // --- END ---
+    // Emit event xác nhận đã join phòng thành công cho client
+    socket.emit("room-joined");
   });
 
   // Chat event: relay chat message to all users in the room
