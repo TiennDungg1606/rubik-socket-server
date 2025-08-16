@@ -6,6 +6,8 @@ const url = require("url");
 const rooms = {}; // Quản lý người chơi trong từng room
 const scrambles = {}; // Quản lý scramble cho từng room
 const roomsMeta = {}; // Quản lý meta phòng: event, displayName, password
+const roomHosts = {}; // Lưu userId chủ phòng cho từng room
+const roomTurns = {}; // Lưu userId người được quyền giải (turn) cho từng room
 // Đã loại bỏ logic người xem (spectator)
 
 function generateScramble3x3() {
@@ -131,25 +133,18 @@ io.on("connection", (socket) => {
 
 socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, displayName, password }) => {
     const room = roomId.toUpperCase();
-    // Không cho phép userName hoặc userId rỗng hoặc không hợp lệ
     if (!userName || typeof userName !== "string" || !userName.trim() || !userId || typeof userId !== "string" || !userId.trim()) {
       console.log(`❌ Không cho phép join-room với userName/userId rỗng hoặc không hợp lệ: '${userName}' '${userId}'`);
       return;
     }
-    
-    // Loại bỏ hoàn toàn logic spectator
-    
-    console.log(`👥 ${userName} (${userId}) joined room ${room} as ${isSpectator ? 'spectator' : 'player'} (socket.id: ${socket.id})`);
+    console.log(`👥 ${userName} (${userId}) joined room ${room} as player (socket.id: ${socket.id})`);
     socket.join(room);
     socket.data = socket.data || {};
     socket.data.room = room;
     socket.data.userName = userName;
     socket.data.userId = userId;
-    // Không còn trường isSpectator
-
 
     if (!rooms[room]) rooms[room] = [];
-    // Nếu là chủ phòng (người đầu tiên), lưu meta nếu có
     let isNewRoom = false;
     if (rooms[room].length === 0) {
       roomsMeta[room] = {
@@ -158,35 +153,34 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
         password: password || ""
       };
       isNewRoom = true;
+      // Gán host là userId đầu tiên
+      roomHosts[room] = userId;
+      // Gán lượt chơi ban đầu là host
+      roomTurns[room] = userId;
     } else {
-      // Nếu không phải chủ phòng, kiểm tra password nếu phòng có đặt mật khẩu
       const roomPassword = roomsMeta[room]?.password || "";
       if (roomPassword && password !== roomPassword) {
         socket.emit("wrong-password", { message: "Sai mật khẩu phòng!" });
         return;
       }
     }
-    // Chỉ cho phép tối đa 2 người chơi trong phòng
     if (rooms[room].length >= 2) {
       socket.emit("room-full", { message: "Phòng đã đủ 2 người chơi" });
       return;
     }
-    // Kiểm tra trùng userId
     if (!rooms[room].some(u => u.userId === userId)) {
       rooms[room].push({ userId, userName });
     }
 
-    io.to(room).emit("room-users", rooms[room]);
-    // Nếu là phòng mới vừa tạo, phát sự kiện cập nhật danh sách phòng cho tất cả client
+  // Broadcast danh sách user, host và turn
+  io.to(room).emit("room-users", { users: rooms[room], hostId: roomHosts[room] });
+  io.to(room).emit("room-turn", { turnUserId: roomTurns[room] });
     if (isNewRoom) {
       io.emit("update-active-rooms");
     }
     console.log("Current players in room", room, rooms[room]);
-    // Đã loại bỏ log spectator
-    // In ra toàn bộ rooms object để debug
     console.log("All rooms:", JSON.stringify(rooms));
 
-    // Nếu phòng chưa có scramble thì tạo 5 scramble local đúng thể loại
     if (!scrambles[room]) {
       scrambles[room] = [];
       const eventType = roomsMeta[room]?.event || "3x3";
@@ -196,53 +190,48 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
         io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
       }
     }
-    // Gửi scramble đầu tiên nếu đã có sẵn
     if (scrambles[room] && scrambles[room].length > 0) {
       io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
     }
 
-    // --- Logic tự hủy phòng nếu chỉ có 1 người là chủ phòng sau 5 phút ---
-    // Nếu phòng chỉ có 1 người chơi, đặt timeout 5 phút
     if (rooms[room].length === 1) {
-      // Nếu đã có timeout cũ thì clear
+      // Khi chỉ còn 1 người, luôn set turn về cho host
+      roomTurns[room] = roomHosts[room];
+      io.to(room).emit("room-turn", { turnUserId: roomTurns[room] });
       if (roomTimeouts[room]) {
         clearTimeout(roomTimeouts[room]);
       }
-      // Đặt timeout mới
       roomTimeouts[room] = setTimeout(() => {
-        // Kiểm tra lại lần cuối: nếu phòng vẫn chỉ có 1 người chơi
         if (rooms[room] && rooms[room].length === 1) {
           console.log(`⏰ Phòng ${room} chỉ có 1 người chơi sau 5 phút, tự động xóa.`);
           delete rooms[room];
           delete scrambles[room];
           if (socket.server.solveCount) delete socket.server.solveCount[room];
           delete roomTimeouts[room];
-          io.to(room).emit("room-users", []);
+          delete roomHosts[room];
+          io.to(room).emit("room-users", { users: [], hostId: null });
         }
-      }, 5 * 60 * 1000); // 5 phút
+      }, 5 * 60 * 1000);
       console.log(`⏳ Đặt timeout tự hủy phòng ${room} sau 5 phút nếu không có ai vào thêm.`);
     } else {
-      // Nếu có thêm người chơi vào, hủy timeout tự hủy phòng
       if (roomTimeouts[room]) {
         clearTimeout(roomTimeouts[room]);
         delete roomTimeouts[room];
         console.log(`❌ Hủy timeout tự hủy phòng ${room} vì đã có thêm người chơi.`);
       }
-      // Nếu vừa đủ 2 người chơi, reset kết quả và scramble cho cả phòng
       if (rooms[room].length === 2) {
-        // Reset solveCount về 0
         if (socket.server.solveCount) socket.server.solveCount[room] = 0;
-        // Sinh lại 5 scramble mới cho phòng này đúng thể loại
         const eventType = roomsMeta[room]?.event || "3x3";
         scrambles[room] = generateLocalScrambles(eventType);
         io.to(room).emit("room-reset");
         if (scrambles[room] && scrambles[room].length > 0) {
           io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
         }
+        // Khi đủ 2 người, set turn về cho host
+        roomTurns[room] = roomHosts[room];
+        io.to(room).emit("room-turn", { turnUserId: roomTurns[room] });
       }
     }
-    // --- END ---
-    // Emit event xác nhận đã join phòng thành công cho client
     socket.emit("room-joined");
   });
 
@@ -270,6 +259,16 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
       const idx = totalSolves / 2;
       if (scrambles[room] && scrambles[room][idx]) {
         io.to(room).emit("scramble", { scramble: scrambles[room][idx], index: idx });
+      }
+    }
+    // Đổi lượt chơi cho người còn lại
+    if (rooms[room] && rooms[room].length === 2) {
+      const userIds = rooms[room].map(u => u.userId);
+      // Chuyển lượt cho người còn lại
+      const nextTurn = userIds.find(id => id !== userId);
+      if (nextTurn) {
+        roomTurns[room] = nextTurn;
+        io.to(room).emit("room-turn", { turnUserId: nextTurn });
       }
     }
   })
@@ -322,11 +321,26 @@ socket.on("rematch-accepted", ({ roomId }) => {
     const room = socket.data?.room;
     const userId = socket.data?.userId;
     if (room && rooms[room]) {
-      // Loại bỏ userId và mọi giá trị null/undefined/"" khỏi mảng
       rooms[room] = rooms[room].filter(u => u && u.userId !== userId && u.userId !== "");
-      io.to(room).emit("room-users", rooms[room]);
+      // Nếu host rời phòng, chọn người còn lại làm host mới
+      if (roomHosts[room] === userId) {
+        if (rooms[room].length > 0) {
+          roomHosts[room] = rooms[room][0].userId;
+        } else {
+          delete roomHosts[room];
+        }
+      }
+      // Nếu turnUserId rời phòng, chuyển lượt cho người còn lại (nếu còn)
+      if (roomTurns[room] === userId) {
+        if (rooms[room].length > 0) {
+          roomTurns[room] = rooms[room][0].userId;
+        } else {
+          delete roomTurns[room];
+        }
+      }
+      io.to(room).emit("room-users", { users: rooms[room], hostId: roomHosts[room] || null });
+      io.to(room).emit("room-turn", { turnUserId: roomTurns[room] || null });
       console.log("Current players in room", room, rooms[room]);
-      // Lọc triệt để trước khi kiểm tra xóa phòng
       const filteredUsers = rooms[room].filter(u => u);
       if (filteredUsers.length === 0) {
         delete rooms[room];
@@ -336,21 +350,22 @@ socket.on("rematch-accepted", ({ roomId }) => {
           clearTimeout(global.roomTimeouts[room]);
           delete global.roomTimeouts[room];
         }
+        delete roomHosts[room];
+        delete roomTurns[room];
         console.log(`Room ${room} deleted from rooms object (empty).`);
       } else if (filteredUsers.length === 1) {
-        // Nếu chỉ còn 1 người chơi sau khi disconnect, reset kết quả và scramble về ban đầu
-        // Reset solveCount về 0
         if (socket.server.solveCount) socket.server.solveCount[room] = 0;
-        // Lấy đúng event từ roomsMeta để sinh scramble phù hợp
         const eventType = roomsMeta[room]?.event || "3x3";
         scrambles[room] = generateLocalScrambles(eventType);
-        // Gửi scramble đầu tiên cho người còn lại
         if (scrambles[room] && scrambles[room].length > 0) {
           io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
         }
-        // Gửi sự kiện reset kết quả cho client còn lại
         io.to(room).emit("room-reset");
-        // Đặt lại timeout tự hủy phòng như cũ
+        // Khi chỉ còn 1 người, set turn về cho host
+        if (rooms[room].length === 1) {
+          roomTurns[room] = roomHosts[room];
+          io.to(room).emit("room-turn", { turnUserId: roomTurns[room] });
+        }
         if (global.roomTimeouts) {
           if (global.roomTimeouts[room]) {
             clearTimeout(global.roomTimeouts[room]);
@@ -362,20 +377,21 @@ socket.on("rematch-accepted", ({ roomId }) => {
               delete scrambles[room];
               if (socket.server.solveCount) delete socket.server.solveCount[room];
               delete global.roomTimeouts[room];
-              io.to(room).emit("room-users", []);
+              delete roomHosts[room];
+              delete roomTurns[room];
+              io.to(room).emit("room-users", { users: [], hostId: null });
+              io.to(room).emit("room-turn", { turnUserId: null });
             }
           }, 5 * 60 * 1000);
           console.log(`⏳ Đặt timeout tự hủy phòng ${room} sau 5 phút vì chỉ còn 1 người chơi.`);
         }
       } else {
-        // Nếu còn nhiều hơn 1 người chơi, hủy timeout tự hủy phòng nếu có
         if (global.roomTimeouts && global.roomTimeouts[room]) {
           clearTimeout(global.roomTimeouts[room]);
           delete global.roomTimeouts[room];
         }
       }
     }
-    // Kiểm tra và xóa phòng rỗng ("") nếu chỉ chứa null/""
     if (rooms[""]) {
       const filteredEmptyRoom = rooms[""]?.filter(u => u);
       if (filteredEmptyRoom.length === 0) {
@@ -386,6 +402,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
           clearTimeout(global.roomTimeouts[""]);
           delete global.roomTimeouts[""];
         }
+        delete roomHosts[""];
         console.log('Room "" deleted from rooms object (empty).');
       }
     }
