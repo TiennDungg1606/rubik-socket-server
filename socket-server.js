@@ -181,18 +181,6 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
     if (isNewRoom) {
       io.emit("update-active-rooms");
     }
-    
-    // Gửi thông tin về quyền chủ phòng cho từng người trong phòng
-    const roomUsers = rooms[room];
-    roomUsers.forEach((user, index) => {
-      const isRoomCreator = index === 0; // Người đầu tiên trong mảng là chủ phòng
-      // Gửi thông tin cho từng người cụ thể
-      io.to(room).emit("room-creator-info", { 
-        userId: user.userId, 
-        isCreator: isRoomCreator 
-      });
-    });
-    
     console.log("Current players in room", room, rooms[room]);
     // Đã loại bỏ log spectator
     // In ra toàn bộ rooms object để debug
@@ -362,13 +350,6 @@ socket.on("rematch-accepted", ({ roomId }) => {
         }
         // Gửi sự kiện reset kết quả cho client còn lại
         io.to(room).emit("room-reset");
-        // Gửi sự kiện trao quyền chủ phòng cho người còn lại
-        io.to(room).emit("room-creator-changed", { newCreatorId: filteredUsers[0].userId });
-        // Gửi thông tin về quyền chủ phòng mới
-        io.to(room).emit("room-creator-info", { 
-          userId: filteredUsers[0].userId, 
-          isCreator: true 
-        });
         // Đặt lại timeout tự hủy phòng như cũ
         if (global.roomTimeouts) {
           if (global.roomTimeouts[room]) {
