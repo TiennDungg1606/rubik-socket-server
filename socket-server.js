@@ -119,8 +119,9 @@ const io = new Server(server, {
   },
 });
 
-server.listen(3001, () => {
-  console.log("🚀 Socket.io + REST server running on port 3001");
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Socket.io + REST server running on port ${PORT}`);
 });
 
 io.on("connection", (socket) => {
