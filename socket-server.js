@@ -50,7 +50,7 @@ function generateLocalScrambles(event = "3x3") {
     if (event === "2x2") localScrambles.push(generateScramble2x2());
     else localScrambles.push(generateScramble3x3());
   }
-  console.log(`✅ Generated 5 local scrambles for ${event}:`, localScrambles);
+  // console.log(`✅ Generated 5 local scrambles for ${event}`); // Ẩn log chi tiết scramble
   return localScrambles;
 }
 
@@ -91,10 +91,11 @@ const server = http.createServer((req, res) => {
   // REST endpoint: /active-rooms
   if (parsed.pathname === "/active-rooms") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    // Trả về danh sách phòng kèm meta
+    // Trả về danh sách phòng kèm meta và số lượng user
     const result = Object.keys(rooms).map(roomId => ({
       roomId,
-      meta: roomsMeta[roomId] || {}
+      meta: roomsMeta[roomId] || {},
+      usersCount: Array.isArray(rooms[roomId]) ? rooms[roomId].length : 0
     }));
     res.end(JSON.stringify(result));
     return;
@@ -179,7 +180,6 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
     if (isNewRoom) {
       io.emit("update-active-rooms");
     }
-    console.log("Current players in room", room, rooms[room]);
     console.log("All rooms:", JSON.stringify(rooms));
 
     if (!scrambles[room]) {
@@ -210,6 +210,7 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
           if (socket.server.solveCount) delete socket.server.solveCount[room];
           delete roomTimeouts[room];
           delete roomHosts[room];
+          delete roomsMeta[room]; // Xóa meta khi phòng trống
           io.to(room).emit("room-users", { users: [], hostId: null });
         }
       }, 5 * 60 * 1000);
@@ -341,7 +342,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
       }
       io.to(room).emit("room-users", { users: rooms[room], hostId: roomHosts[room] || null });
       io.to(room).emit("room-turn", { turnUserId: roomTurns[room] || null });
-      console.log("Current players in room", room, rooms[room]);
+  // console.log("Current players in room", room, rooms[room]);
       const filteredUsers = rooms[room].filter(u => u);
       if (filteredUsers.length === 0) {
         delete rooms[room];
@@ -353,7 +354,8 @@ socket.on("rematch-accepted", ({ roomId }) => {
         }
         delete roomHosts[room];
         delete roomTurns[room];
-        console.log(`Room ${room} deleted from rooms object (empty).`);
+        delete roomsMeta[room]; // Xóa meta khi phòng trống
+        // console.log(`Room ${room} deleted from rooms object (empty).`);
       } else if (filteredUsers.length === 1) {
         if (socket.server.solveCount) socket.server.solveCount[room] = 0;
         const eventType = roomsMeta[room]?.event || "3x3";
