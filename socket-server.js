@@ -355,7 +355,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
         delete roomHosts[room];
         delete roomTurns[room];
         delete roomsMeta[room]; // Xóa meta khi phòng trống
-        // console.log(`Room ${room} deleted from rooms object (empty).`);
+        io.emit("update-active-rooms"); // Thông báo client cập nhật lại danh sách phòng
       } else if (filteredUsers.length === 1) {
         if (socket.server.solveCount) socket.server.solveCount[room] = 0;
         const eventType = roomsMeta[room]?.event || "3x3";
