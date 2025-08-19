@@ -10,6 +10,83 @@ const roomHosts = {}; // Lưu userId chủ phòng cho từng room
 const roomTurns = {}; // Lưu userId người được quyền giải (turn) cho từng room
 // Đã loại bỏ logic người xem (spectator)
 
+// Xóa user khỏi phòng và dọn dẹp nếu phòng trống
+function removeUserAndCleanup(room, userId) {
+  if (!room || !rooms[room]) return;
+  rooms[room] = rooms[room].filter(u => u && u.userId !== userId && u.userId !== "");
+  // Nếu host rời phòng, chọn người còn lại làm host mới
+  if (roomHosts[room] === userId) {
+    if (rooms[room].length > 0) {
+      roomHosts[room] = rooms[room][0].userId;
+    } else {
+      delete roomHosts[room];
+    }
+  }
+  // Nếu turnUserId rời phòng, chuyển lượt cho người còn lại (nếu còn)
+  if (roomTurns[room] === userId) {
+    if (rooms[room].length > 0) {
+      roomTurns[room] = rooms[room][0].userId;
+    } else {
+      delete roomTurns[room];
+    }
+  }
+  io.to(room).emit("room-users", { users: rooms[room], hostId: roomHosts[room] || null });
+  io.to(room).emit("room-turn", { turnUserId: roomTurns[room] || null });
+  const filteredUsers = rooms[room].filter(u => u);
+  if (filteredUsers.length === 0) {
+    delete rooms[room];
+    delete scrambles[room];
+    if (io.sockets && io.sockets.server && io.sockets.server.solveCount) delete io.sockets.server.solveCount[room];
+    if (global.roomTimeouts && global.roomTimeouts[room]) {
+      clearTimeout(global.roomTimeouts[room]);
+      delete global.roomTimeouts[room];
+    }
+    delete roomHosts[room];
+    delete roomTurns[room];
+    delete roomsMeta[room];
+    io.emit("update-active-rooms");
+    console.log(`Room ${room} deleted from rooms object (empty).`);
+  } else if (filteredUsers.length === 1) {
+    if (io.sockets && io.sockets.server && io.sockets.server.solveCount) io.sockets.server.solveCount[room] = 0;
+    const eventType = roomsMeta[room]?.event || "3x3";
+    scrambles[room] = generateLocalScrambles(eventType);
+    if (scrambles[room] && scrambles[room].length > 0) {
+      io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
+    }
+    io.to(room).emit("room-reset");
+    // Khi chỉ còn 1 người, set turn về cho host
+    if (rooms[room].length === 1) {
+      roomTurns[room] = roomHosts[room];
+      io.to(room).emit("room-turn", { turnUserId: roomTurns[room] });
+    }
+    if (global.roomTimeouts) {
+      if (global.roomTimeouts[room]) {
+        clearTimeout(global.roomTimeouts[room]);
+      }
+      global.roomTimeouts[room] = setTimeout(() => {
+        if (rooms[room] && rooms[room].length === 1) {
+          delete rooms[room];
+          delete scrambles[room];
+          if (io.sockets && io.sockets.server && io.sockets.server.solveCount) delete io.sockets.server.solveCount[room];
+          delete global.roomTimeouts[room];
+          delete roomHosts[room];
+          delete roomTurns[room];
+          io.to(room).emit("room-users", { users: [], hostId: null });
+          io.to(room).emit("room-turn", { turnUserId: null });
+          io.emit("update-active-rooms");
+        }
+      }, 5 * 60 * 1000);
+    }
+    io.emit("update-active-rooms");
+  } else {
+    if (global.roomTimeouts && global.roomTimeouts[room]) {
+      clearTimeout(global.roomTimeouts[room]);
+      delete global.roomTimeouts[room];
+    }
+    io.emit("update-active-rooms");
+  }
+}
+
 function generateScramble3x3() {
   const moves = ["U", "D", "L", "R", "F", "B"];
   const suffix = ["", "'", "2"];
@@ -133,6 +210,11 @@ io.on("connection", (socket) => {
   if (!global.roomTimeouts) global.roomTimeouts = {};
   const roomTimeouts = global.roomTimeouts;
 
+  // Xử lý rời phòng chủ động từ client
+  socket.on("leave-room", ({ roomId, userId }) => {
+    removeUserAndCleanup(roomId?.toUpperCase(), userId);
+  });
+
 socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, displayName, password }) => {
     const room = roomId.toUpperCase();
     if (!userName || typeof userName !== "string" || !userName.trim() || !userId || typeof userId !== "string" || !userId.trim()) {
@@ -170,9 +252,13 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
       socket.emit("room-full", { message: "Phòng đã đủ 2 người chơi" });
       return;
     }
+
     if (!rooms[room].some(u => u.userId === userId)) {
       rooms[room].push({ userId, userName });
     }
+
+    // Kiểm tra và dọn dẹp phòng nếu trống (sau khi join/leave)
+    removeUserAndCleanup(room, undefined); // undefined để không xóa ai, chỉ kiểm tra phòng trống
 
   // Broadcast danh sách user, host và turn
   io.to(room).emit("room-users", { users: rooms[room], hostId: roomHosts[room] });
