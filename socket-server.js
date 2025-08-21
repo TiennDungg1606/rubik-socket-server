@@ -300,7 +300,7 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
           io.to(room).emit("room-users", { users: [], hostId: null });
         }
       }, 5 * 60 * 1000);
-      console.log(`⏳ Đặt timeout tự hủy phòng ${room} sau 5 phút nếu không có ai vào thêm.`);
+      // console.log(`⏳ Đặt timeout tự hủy phòng ${room} sau 5 phút nếu không có ai vào thêm.`);
     } else {
       if (roomTimeouts[room]) {
         clearTimeout(roomTimeouts[room]);
@@ -333,7 +333,7 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
 
   socket.on("solve", ({ roomId, userId, userName, time }) => {
     const room = roomId.toUpperCase();
-    console.log(`🧩 ${userName} (${userId}) solved in ${time}ms`);
+    // console.log(`🧩 ${userName} (${userId}) solved in ${time}ms`);
     // Gửi kết quả cho đối thủ
     socket.to(room).emit("opponent-solve", { userId, userName, time });
 
@@ -472,7 +472,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
               io.to(room).emit("room-turn", { turnUserId: null });
             }
           }, 5 * 60 * 1000);
-          console.log(`⏳ Đặt timeout tự hủy phòng ${room} sau 5 phút vì chỉ còn 1 người chơi.`);
+          // console.log(`⏳ Đặt timeout tự hủy phòng ${room} sau 5 phút vì chỉ còn 1 người chơi.`);
         }
       } else {
         if (global.roomTimeouts && global.roomTimeouts[room]) {
