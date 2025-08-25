@@ -385,6 +385,13 @@ socket.on("rematch-accepted", ({ roomId }) => {
     // Gửi thông báo từ chối tái đấu cho tất cả client khác trong phòng
     socket.to(room).emit("rematch-declined");
   });
+
+  // Khi 1 người hủy yêu cầu tái đấu (cancel khi đang chờ)
+  socket.on("rematch-cancel", ({ roomId }) => {
+    const room = roomId.toUpperCase();
+    // Gửi thông báo hủy tái đấu cho tất cả client khác trong phòng
+    socket.to(room).emit("rematch-cancel");
+  });
   
   
 
