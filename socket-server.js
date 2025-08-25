@@ -331,6 +331,19 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
     io.to(room).emit("chat", { userId, userName, message });
   });
 
+  // Relay timer/inspection states so opponent can see live status
+  socket.on("timer-prep", ({ roomId, userId, remaining }) => {
+    const room = roomId && roomId.toUpperCase();
+    if (!room) return;
+    socket.to(room).emit("opponent-timer-prep", { userId, remaining });
+  });
+
+  socket.on("timer-update", ({ roomId, userId, ms, running, finished }) => {
+    const room = roomId && roomId.toUpperCase();
+    if (!room) return;
+    socket.to(room).emit("opponent-timer-update", { userId, ms, running, finished: !!finished });
+  });
+
   socket.on("solve", ({ roomId, userId, userName, time }) => {
     const room = roomId.toUpperCase();
     // console.log(`🧩 ${userName} (${userId}) solved in ${time}ms`);
