@@ -203,6 +203,19 @@ server.listen(3001, '0.0.0.0', () => {
 });
 
 io.on("connection", (socket) => {
+  // Relay timer-prep event to other users in the room
+  socket.on("timer-prep", (data) => {
+    if (!data || !data.roomId) return;
+    const room = data.roomId.toUpperCase();
+    socket.to(room).emit("timer-prep", data);
+  });
+
+  // Relay timer-update event to other users in the room
+  socket.on("timer-update", (data) => {
+    if (!data || !data.roomId) return;
+    const room = data.roomId.toUpperCase();
+    socket.to(room).emit("timer-update", data);
+  });
   console.log("🔌 Client connected");
 
 
