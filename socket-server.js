@@ -210,11 +210,59 @@ io.on("connection", (socket) => {
     socket.to(room).emit("timer-prep", data);
   });
 
-  // Relay timer-update event to other users in the room
+  // Quản lý interval gửi timer-update liên tục cho từng phòng
+  if (!global.timerIntervals) global.timerIntervals = {};
+  const timerIntervals = global.timerIntervals;
+
+  // Khi nhận timer-update từ client, server sẽ phát tán liên tục cho các client khác trong phòng
   socket.on("timer-update", (data) => {
     if (!data || !data.roomId) return;
     const room = data.roomId.toUpperCase();
-    socket.to(room).emit("timer-update", data);
+    // Lưu trạng thái timer hiện tại cho phòng
+    if (!global.roomTimers) global.roomTimers = {};
+    global.roomTimers[room] = {
+      ms: data.ms,
+      running: data.running,
+      finished: data.finished,
+      userId: data.userId,
+      lastUpdate: Date.now()
+    };
+    // Nếu đang giải, bắt đầu interval gửi timer-update liên tục
+    if (data.running) {
+      if (timerIntervals[room]) clearInterval(timerIntervals[room]);
+      timerIntervals[room] = setInterval(() => {
+        const timerState = global.roomTimers[room];
+        if (!timerState || !timerState.running) {
+          clearInterval(timerIntervals[room]);
+          delete timerIntervals[room];
+          return;
+        }
+        // Tính toán ms mới dựa trên thời gian thực tế
+        const now = Date.now();
+        const elapsed = now - timerState.lastUpdate;
+        const ms = timerState.ms + elapsed;
+        io.to(room).emit("timer-update", {
+          roomId: room,
+          userId: timerState.userId,
+          ms,
+          running: true,
+          finished: false
+        });
+      }, 50); // gửi mỗi 50ms
+    } else {
+      // Khi dừng giải, gửi timer-update cuối cùng và dừng interval
+      if (timerIntervals[room]) {
+        clearInterval(timerIntervals[room]);
+        delete timerIntervals[room];
+      }
+      io.to(room).emit("timer-update", {
+        roomId: room,
+        userId: data.userId,
+        ms: data.ms,
+        running: false,
+        finished: data.finished
+      });
+    }
   });
   console.log("🔌 Client connected");
 
