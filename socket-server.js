@@ -457,8 +457,6 @@ socket.on("rematch-accepted", ({ roomId }) => {
   // --- Lock due to 2 DNF events ---
   socket.on("lock-due-2dnf", ({ roomId, myDnfCount, oppDnfCount }) => {
     const room = roomId.toUpperCase();
-    console.log(`🔒 [${room}] Lock due to 2 DNF - myDnfCount: ${myDnfCount}, oppDnfCount: ${oppDnfCount}`);
-    
     // Broadcast sự kiện khóa do 2 lần DNF cho tất cả client trong phòng
     io.to(room).emit("lock-due-2dnf", { 
       roomId, 
@@ -466,18 +464,14 @@ socket.on("rematch-accepted", ({ roomId }) => {
       oppDnfCount,
       lockedByUserId: socket.data?.userId || 'unknown'
     });
-    
-    console.log(`🔒 [${room}] Đã broadcast lock-due-2dnf cho cả phòng`);
   });
 
   socket.on("unlock-due-rematch", ({ roomId }) => {
     const room = roomId.toUpperCase();
-    console.log(`🔓 [${room}] Unlock due to rematch`);
     
     // Broadcast sự kiện mở khóa do tái đấu cho tất cả client trong phòng
     io.to(room).emit("unlock-due-rematch", { roomId });
-    
-    console.log(`🔓 [${room}] Đã broadcast unlock-due-rematch cho cả phòng`);
+
   });
 
   // Relay camera toggle event to other users in the room
