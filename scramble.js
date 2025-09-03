@@ -94,9 +94,6 @@ function generate4x4Scramble() {
   const part2 = generate4x4Part2(wideMoves, regularMoves, allModifiers);
   
   // Kết hợp cả hai với khoảng cách rõ ràng
-  const totalWideMoves = (part2.match(/w/g) || []).length;
-  console.log(`4x4 Scramble: ${outerLength} outer + ${totalWideMoves} wide moves in part 2`);
-  
   return part1 + '  ' + part2;
 }
 
@@ -221,11 +218,6 @@ function generatePyraminxScramble() {
   // Kết hợp cả hai với khoảng cách rõ ràng
   // Ví dụ: "R L' U B R' L U'  l r b" (đúng) hoặc "R L U B R' L' U' B  l" (đúng)
   // Không được: "r b u b'" (sai vì bị lặp b)
-  
-  // Debug log để kiểm tra
-  const mainMovesCount = largeScramble.split(' ').length;
-  const tipMovesCount = smallScramble.split(' ').length;
-  console.log(`Pyraminx Scramble: ${mainMovesCount} main + ${tipMovesCount} tip moves`);
   
   return largeScramble + '  ' + smallScramble;
 }
