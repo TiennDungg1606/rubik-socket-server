@@ -2,6 +2,7 @@
 const { Server } = require("socket.io");
 const http = require("http");
 const url = require("url");
+const { generateWcaScramble, generate2x2Scramble, generate3x3Scramble, generate4x4Scramble, generatePyraminxScramble } = require("./scramble.js");
 
 const rooms = {}; // Quản lý người chơi trong từng room
 const scrambles = {}; // Quản lý scramble cho từng room
@@ -87,45 +88,18 @@ function removeUserAndCleanup(room, userId) {
   }
 }
 
-function generateScramble3x3() {
-  const moves = ["U", "D", "L", "R", "F", "B"];
-  const suffix = ["", "'", "2"];
-  let scramble = [];
-  let prev = "";
-  let prev2 = "";
-  for (let i = 0; i < 20; i++) {
-    let m;
-    do {
-      m = moves[Math.floor(Math.random() * moves.length)];
-    } while (m === prev || (prev2 && m[0] === prev2[0]));
-    prev2 = prev;
-    prev = m;
-    scramble.push(m + suffix[Math.floor(Math.random() * 3)]);
-  }
-  return scramble.join(" ");
-}
-
-function generateScramble2x2() {
-  const moves = ["U", "R", "F"];
-  const suffix = ["", "'", "2"];
-  let scramble = [];
-  let prev = "";
-  for (let i = 0; i < 9; i++) {
-    let m;
-    do {
-      m = moves[Math.floor(Math.random() * moves.length)];
-    } while (m === prev);
-    prev = m;
-    scramble.push(m + suffix[Math.floor(Math.random() * 3)]);
-  }
-  return scramble.join(" ");
-}
-
 function generateLocalScrambles(event = "3x3") {
   const localScrambles = [];
   for (let i = 0; i < 5; i++) {
-    if (event === "2x2") localScrambles.push(generateScramble2x2());
-    else localScrambles.push(generateScramble3x3());
+    if (event === "2x2") {
+      localScrambles.push(generate2x2Scramble());
+    } else if (event === "4x4") {
+      localScrambles.push(generate4x4Scramble());
+    } else if (event === "pyraminx") {
+      localScrambles.push(generatePyraminxScramble());
+    } else {
+      localScrambles.push(generate3x3Scramble());
+    }
   }
   // console.log(`✅ Generated 5 local scrambles for ${event}`); // Ẩn log chi tiết scramble
   return localScrambles;
