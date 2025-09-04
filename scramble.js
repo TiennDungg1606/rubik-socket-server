@@ -106,13 +106,14 @@ function generate4x4Part2(wideMoves, regularMoves, modifiers) {
   let wideMovesCount = 0;
   let consecutiveWide = 0; // Đếm wide moves liên tiếp
   let consecutiveRegular = 0; // Đếm regular moves liên tiếp
+  let lastMove = '';
+  let lastAxis = '';
   
   for (let i = 0; i < totalMoves; i++) {
     let move;
+    let modifier;
     let attempts = 0;
-    const maxAttempts = 30;
-    let lastMove = '';
-    let lastAxis = '';
+    const maxAttempts = 50; // Tăng số lần thử
     
     // Kiểm tra quy tắc liên tiếp
     const canUseWide = consecutiveWide < 3; // Tối đa 3 wide moves liên tiếp
@@ -133,16 +134,24 @@ function generate4x4Part2(wideMoves, regularMoves, modifiers) {
       availableMoves = [...wideMoves, ...regularMoves];
     }
     
-    // Tránh lặp lại cùng một move hoặc cùng axis liên tiếp
+    // Tránh lặp lại cùng một move liên tiếp và các pattern redundant
+    // Nhưng cho phép R Rw, Uw2 U' vì chúng là các move khác nhau
     do {
       move = availableMoves[Math.floor(Math.random() * availableMoves.length)];
+      modifier = modifiers[Math.floor(Math.random() * modifiers.length)];
       attempts++;
     } while (
       attempts < maxAttempts && 
-      (move === lastMove || getAxis(move) === lastAxis)
+      (move === lastMove || 
+       isRedundantMove(move, modifier, lastMove, sequence))
     );
     
-    const modifier = modifiers[Math.floor(Math.random() * modifiers.length)];
+    // Nếu không tìm được move phù hợp sau maxAttempts lần thử, chọn move bất kỳ
+    if (attempts >= maxAttempts) {
+      move = availableMoves[Math.floor(Math.random() * availableMoves.length)];
+      modifier = modifiers[Math.floor(Math.random() * modifiers.length)];
+    }
+    
     sequence.push(move + modifier);
     
     // Cập nhật đếm liên tiếp
@@ -160,6 +169,33 @@ function generate4x4Part2(wideMoves, regularMoves, modifiers) {
   }
   
   return sequence.join(' ');
+}
+
+// Hàm kiểm tra move có bị redundant không (như L L', Uw' Uw2, Fw2 Fw')
+function isRedundantMove(currentMove, currentModifier, lastMove, sequence) {
+  // Kiểm tra nếu cùng move với modifier khác nhau (L L', Uw' Uw2, Fw2 Fw')
+  if (currentMove === lastMove) {
+    return true;
+  }
+  
+  // Kiểm tra các pattern redundant cụ thể - chỉ khi cùng move hoàn toàn
+  const lastMoveInSequence = sequence[sequence.length - 1];
+  if (lastMoveInSequence) {
+    const lastMoveOnly = lastMoveInSequence.replace(/['2]/g, '');
+    const lastModifier = lastMoveInSequence.replace(lastMoveOnly, '');
+    
+    // Chỉ kiểm tra redundant khi cùng move hoàn toàn (không phân biệt regular/wide)
+    // Ví dụ: L L', Uw Uw', Fw2 Fw' - nhưng R Rw, Uw2 U' là hợp lệ
+    if (currentMove === lastMoveOnly && 
+        ((currentModifier === '' && lastModifier === "'") ||
+         (currentModifier === "'" && lastModifier === '') ||
+         (currentModifier === '2' && lastModifier === "'") ||
+         (currentModifier === "'" && lastModifier === '2'))) {
+      return true;
+    }
+  }
+  
+  return false;
 }
 
 // Hàm tạo scramble cho 5x5
