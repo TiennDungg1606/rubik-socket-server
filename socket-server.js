@@ -455,6 +455,13 @@ socket.on("rematch-accepted", ({ roomId }) => {
     socket.to(room).emit("user-cam-toggle", data);
   });
 
+  // Relay microphone toggle event to other users in the room
+  socket.on("user-mic-toggle", (data) => {
+    if (!data || !data.roomId) return;
+    const room = data.roomId.toUpperCase();
+    socket.to(room).emit("user-mic-toggle", data);
+  });
+
   // Relay all WebRTC signaling messages (simple-peer expects 'signal')
   socket.on("signal", ({ roomId, userId, userName, signal }) => {
     const room = roomId.toUpperCase();
