@@ -290,7 +290,11 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
       }
       
       if (!spectators[room].some(u => u.userId === userId)) {
-        spectators[room].push({ userId, userName });
+        spectators[room].push({ userId, userName, socketId: socket.id });
+      } else {
+        // Cập nhật socketId nếu user đã tồn tại
+        const spectator = spectators[room].find(u => u.userId === userId);
+        if (spectator) spectator.socketId = socket.id;
       }
       
       // Gửi thông tin phòng cho người xem
@@ -298,6 +302,51 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
       socket.emit("room-users", { users: rooms[room] || [], hostId: roomHosts[room] || null });
       socket.emit("room-turn", { turnUserId: roomTurns[room] || null });
       socket.emit("room-spectators", { spectators: spectators[room] || [] });
+      
+      // Gửi dữ liệu kết quả hiện tại cho người xem
+      const players = rooms[room] || [];
+      if (players.length >= 2) {
+        const player1 = players[0];
+        const player2 = players[1];
+        
+        if (global.roomResults && global.roomResults[room]) {
+          const player1Results = global.roomResults[room][player1.userId] || [];
+          const player2Results = global.roomResults[room][player2.userId] || [];
+          const player1Sets = global.roomSets && global.roomSets[room] ? (global.roomSets[room][player1.userId] || 0) : 0;
+          const player2Sets = global.roomSets && global.roomSets[room] ? (global.roomSets[room][player2.userId] || 0) : 0;
+          
+          socket.emit("player-results", {
+            player1: {
+              userId: player1.userId,
+              userName: player1.userName,
+              results: player1Results,
+              sets: player1Sets
+            },
+            player2: {
+              userId: player2.userId,
+              userName: player2.userName,
+              results: player2Results,
+              sets: player2Sets
+            }
+          });
+        } else {
+          // Gửi dữ liệu rỗng nếu chưa có kết quả
+          socket.emit("player-results", {
+            player1: {
+              userId: player1.userId,
+              userName: player1.userName,
+              results: [],
+              sets: 0
+            },
+            player2: {
+              userId: player2.userId,
+              userName: player2.userName,
+              results: [],
+              sets: 0
+            }
+          });
+        }
+      }
       
       // Gửi scramble hiện tại nếu có
       if (scrambles[room] && scrambles[room].length > 0) {
@@ -419,8 +468,59 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
   socket.on("solve", ({ roomId, userId, userName, time }) => {
     const room = roomId.toUpperCase();
     // console.log(`🧩 ${userName} (${userId}) solved in ${time}ms`);
+    
+    // Lưu kết quả vào room data để gửi cho người xem
+    if (!global.roomResults) global.roomResults = {};
+    if (!global.roomResults[room]) global.roomResults[room] = {};
+    if (!global.roomResults[room][userId]) global.roomResults[room][userId] = [];
+    global.roomResults[room][userId].push(time);
+    
+    // Lưu sets nếu cần (có thể thêm logic tính sets ở đây)
+    if (!global.roomSets) global.roomSets = {};
+    if (!global.roomSets[room]) global.roomSets[room] = {};
+    if (!global.roomSets[room][userId]) global.roomSets[room][userId] = 0;
+    
     // Gửi kết quả cho đối thủ
     socket.to(room).emit("opponent-solve", { userId, userName, time });
+    
+    // Gửi kết quả cho người xem
+    const roomSpectators = spectators[room] || [];
+    if (roomSpectators.length > 0) {
+      // Xác định người chơi 1 và 2
+      const players = rooms[room] || [];
+      const player1 = players[0];
+      const player2 = players[1];
+      
+      if (player1 && player2) {
+        // Gửi kết quả của người chơi 1
+        const player1Results = global.roomResults[room][player1.userId] || [];
+        const player1Sets = global.roomSets[room][player1.userId] || 0;
+        
+        // Gửi kết quả của người chơi 2
+        const player2Results = global.roomResults[room][player2.userId] || [];
+        const player2Sets = global.roomSets[room][player2.userId] || 0;
+        
+        // Gửi cho tất cả người xem
+        roomSpectators.forEach(spectator => {
+          if (spectator.socketId) {
+            io.to(spectator.socketId).emit("player-results", {
+              player1: {
+                userId: player1.userId,
+                userName: player1.userName,
+                results: player1Results,
+                sets: player1Sets
+              },
+              player2: {
+                userId: player2.userId,
+                userName: player2.userName,
+                results: player2Results,
+                sets: player2Sets
+              }
+            });
+          }
+        });
+      }
+    }
 
     // Quản lý lượt giải để gửi scramble tiếp theo
     if (!socket.server.solveCount) socket.server.solveCount = {};
