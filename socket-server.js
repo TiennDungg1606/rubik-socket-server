@@ -213,6 +213,17 @@ io.on("connection", (socket) => {
       userId: data.userId,
       lastUpdate: Date.now()
     };
+    
+    // Lưu timer data cho từng người chơi (dành cho người xem)
+    if (!global.playerTimers) global.playerTimers = {};
+    if (!global.playerTimers[room]) global.playerTimers[room] = {};
+    global.playerTimers[room][data.userId] = {
+      timer: data.ms,
+      prep: data.prep || false,
+      prepTime: data.prepTime || 0,
+      dnf: data.dnf || false
+    };
+    
     // Nếu đang giải, bắt đầu interval gửi timer-update liên tục
     if (data.running) {
       if (timerIntervals[room]) clearInterval(timerIntervals[room]);
@@ -227,6 +238,12 @@ io.on("connection", (socket) => {
         const now = Date.now();
         const elapsed = now - timerState.lastUpdate;
         const ms = timerState.ms + elapsed;
+        
+        // Cập nhật timer data cho người chơi
+        if (global.playerTimers[room] && global.playerTimers[room][timerState.userId]) {
+          global.playerTimers[room][timerState.userId].timer = ms;
+        }
+        
         io.to(room).emit("timer-update", {
           roomId: room,
           userId: timerState.userId,
@@ -234,6 +251,38 @@ io.on("connection", (socket) => {
           running: true,
           finished: false
         });
+        
+        // Gửi timer data cho người xem
+        const roomSpectators = spectators[room] || [];
+        if (roomSpectators.length > 0) {
+          const players = rooms[room] || [];
+          const player1 = players[0];
+          const player2 = players[1];
+          if (player1 && player2) {
+            const player1Timer = global.playerTimers[room][player1.userId] || { timer: 0, prep: false, prepTime: 0, dnf: false };
+            const player2Timer = global.playerTimers[room][player2.userId] || { timer: 0, prep: false, prepTime: 0, dnf: false };
+            roomSpectators.forEach(spectator => {
+              if (spectator.socketId) {
+                io.to(spectator.socketId).emit("player-timer", {
+                  player1: {
+                    userId: player1.userId,
+                    timer: player1Timer.timer,
+                    prep: player1Timer.prep,
+                    prepTime: player1Timer.prepTime,
+                    dnf: player1Timer.dnf
+                  },
+                  player2: {
+                    userId: player2.userId,
+                    timer: player2Timer.timer,
+                    prep: player2Timer.prep,
+                    prepTime: player2Timer.prepTime,
+                    dnf: player2Timer.dnf
+                  }
+                });
+              }
+            });
+          }
+        }
       }, 50); // gửi mỗi 50ms
     } else {
       // Khi dừng giải, gửi timer-update cuối cùng và dừng interval
@@ -248,6 +297,38 @@ io.on("connection", (socket) => {
         running: false,
         finished: data.finished
       });
+      
+      // Gửi timer data cuối cùng cho người xem
+      const roomSpectators = spectators[room] || [];
+      if (roomSpectators.length > 0) {
+        const players = rooms[room] || [];
+        const player1 = players[0];
+        const player2 = players[1];
+        if (player1 && player2) {
+          const player1Timer = global.playerTimers[room][player1.userId] || { timer: 0, prep: false, prepTime: 0, dnf: false };
+          const player2Timer = global.playerTimers[room][player2.userId] || { timer: 0, prep: false, prepTime: 0, dnf: false };
+          roomSpectators.forEach(spectator => {
+            if (spectator.socketId) {
+              io.to(spectator.socketId).emit("player-timer", {
+                player1: {
+                  userId: player1.userId,
+                  timer: player1Timer.timer,
+                  prep: player1Timer.prep,
+                  prepTime: player1Timer.prepTime,
+                  dnf: player1Timer.dnf
+                },
+                player2: {
+                  userId: player2.userId,
+                  timer: player2Timer.timer,
+                  prep: player2Timer.prep,
+                  prepTime: player2Timer.prepTime,
+                  dnf: player2Timer.dnf
+                }
+              });
+            }
+          });
+        }
+      }
     }
   });
   console.log("🔌 Client connected");
@@ -346,6 +427,46 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
             }
           });
         }
+      }
+      
+      // Gửi timer data hiện tại cho người xem
+      if (global.playerTimers && global.playerTimers[room]) {
+        const player1Timer = global.playerTimers[room][player1.userId] || { timer: 0, prep: false, prepTime: 0, dnf: false };
+        const player2Timer = global.playerTimers[room][player2.userId] || { timer: 0, prep: false, prepTime: 0, dnf: false };
+        socket.emit("player-timer", {
+          player1: {
+            userId: player1.userId,
+            timer: player1Timer.timer,
+            prep: player1Timer.prep,
+            prepTime: player1Timer.prepTime,
+            dnf: player1Timer.dnf
+          },
+          player2: {
+            userId: player2.userId,
+            timer: player2Timer.timer,
+            prep: player2Timer.prep,
+            prepTime: player2Timer.prepTime,
+            dnf: player2Timer.dnf
+          }
+        });
+      } else {
+        // Gửi timer data rỗng nếu chưa có
+        socket.emit("player-timer", {
+          player1: {
+            userId: player1.userId,
+            timer: 0,
+            prep: false,
+            prepTime: 0,
+            dnf: false
+          },
+          player2: {
+            userId: player2.userId,
+            timer: 0,
+            prep: false,
+            prepTime: 0,
+            dnf: false
+          }
+        });
       }
       
       // Gửi scramble hiện tại nếu có
