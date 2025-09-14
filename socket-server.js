@@ -561,4 +561,179 @@ socket.on("rematch-accepted", ({ roomId }) => {
       }
     }
   });
+
+  // ===== WAITING ROOM 2VS2 LOGIC =====
+  
+  // Quản lý phòng chờ 2vs2
+  const waitingRooms = {}; // { roomId: { players: [], roomCreator: '', gameStarted: false } }
+  
+  // Join waiting room
+  socket.on('join-waiting-room', (data) => {
+    const { roomId, userId, userName } = data;
+    
+    if (!waitingRooms[roomId]) {
+      waitingRooms[roomId] = {
+        roomId,
+        players: [],
+        roomCreator: userId, // Người đầu tiên join sẽ là chủ phòng
+        gameStarted: false
+      };
+    }
+    
+    // Kiểm tra xem user đã có trong phòng chưa
+    const existingPlayerIndex = waitingRooms[roomId].players.findIndex(p => p.id === userId);
+    
+    if (existingPlayerIndex === -1) {
+      // Thêm player mới
+      const newPlayer = {
+        id: userId,
+        name: userName,
+        isReady: false,
+        isObserver: false,
+        team: null // Sẽ được assign khi join team
+      };
+      
+      // Auto assign team nếu chưa đủ người
+      const team1Count = waitingRooms[roomId].players.filter(p => p.team === 'team1' && !p.isObserver).length;
+      const team2Count = waitingRooms[roomId].players.filter(p => p.team === 'team2' && !p.isObserver).length;
+      
+      if (team1Count < 2) {
+        newPlayer.team = 'team1';
+      } else if (team2Count < 2) {
+        newPlayer.team = 'team2';
+      }
+      // Nếu cả 2 team đã đủ, player sẽ là observer
+      
+      waitingRooms[roomId].players.push(newPlayer);
+    }
+    
+    socket.join(`waiting-${roomId}`);
+    socket.emit('waiting-room-updated', waitingRooms[roomId]);
+    socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
+    
+    console.log(`User ${userId} joined waiting room ${roomId}`);
+  });
+  
+  // Toggle ready status
+  socket.on('toggle-ready', (data) => {
+    const { roomId, userId } = data;
+    
+    if (!waitingRooms[roomId]) return;
+    
+    const player = waitingRooms[roomId].players.find(p => p.id === userId);
+    if (player && !player.isObserver) {
+      player.isReady = !player.isReady;
+      
+      socket.emit('waiting-room-updated', waitingRooms[roomId]);
+      socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
+      
+      console.log(`User ${userId} toggled ready status in waiting room ${roomId}`);
+    }
+  });
+  
+  // Toggle observer status
+  socket.on('toggle-observer', (data) => {
+    const { roomId, userId } = data;
+    
+    if (!waitingRooms[roomId]) return;
+    
+    const player = waitingRooms[roomId].players.find(p => p.id === userId);
+    if (player) {
+      player.isObserver = !player.isObserver;
+      
+      if (player.isObserver) {
+        player.team = null;
+        player.isReady = false;
+      } else {
+        // Auto assign team khi bỏ observer
+        const team1Count = waitingRooms[roomId].players.filter(p => p.team === 'team1' && !p.isObserver).length;
+        const team2Count = waitingRooms[roomId].players.filter(p => p.team === 'team2' && !p.isObserver).length;
+        
+        if (team1Count < 2) {
+          player.team = 'team1';
+        } else if (team2Count < 2) {
+          player.team = 'team2';
+        }
+      }
+      
+      socket.emit('waiting-room-updated', waitingRooms[roomId]);
+      socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
+      
+      console.log(`User ${userId} toggled observer status in waiting room ${roomId}`);
+    }
+  });
+  
+  // Start game
+  socket.on('start-game', (data) => {
+    const { roomId, userId } = data;
+    
+    if (!waitingRooms[roomId] || waitingRooms[roomId].roomCreator !== userId) {
+      socket.emit('error', { message: 'Chỉ chủ phòng mới có thể bắt đầu game' });
+      return;
+    }
+    
+    // Kiểm tra điều kiện bắt đầu
+    const team1Players = waitingRooms[roomId].players.filter(p => p.team === 'team1' && !p.isObserver);
+    const team2Players = waitingRooms[roomId].players.filter(p => p.team === 'team2' && !p.isObserver);
+    
+    if (team1Players.length !== 2 || team2Players.length !== 2) {
+      socket.emit('error', { message: 'Cần đủ 2 người mỗi đội để bắt đầu' });
+      return;
+    }
+    
+    if (!team1Players.every(p => p.isReady) || !team2Players.every(p => p.isReady)) {
+      socket.emit('error', { message: 'Tất cả người chơi phải sẵn sàng' });
+      return;
+    }
+    
+    // Đánh dấu game đã bắt đầu
+    waitingRooms[roomId].gameStarted = true;
+    
+    // Chuyển hướng tất cả players sang room game
+    socket.emit('game-started', { roomId, gameMode: '2vs2' });
+    socket.to(`waiting-${roomId}`).emit('game-started', { roomId, gameMode: '2vs2' });
+    
+    console.log(`Game started in waiting room ${roomId}`);
+  });
+  
+  // Leave waiting room
+  socket.on('leave-waiting-room', (data) => {
+    const { roomId, userId } = data;
+    
+    if (!waitingRooms[roomId]) return;
+    
+    waitingRooms[roomId].players = waitingRooms[roomId].players.filter(p => p.id !== userId);
+    
+    socket.leave(`waiting-${roomId}`);
+    socket.emit('waiting-room-updated', waitingRooms[roomId]);
+    socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
+    
+    // Nếu phòng trống, xóa phòng
+    if (waitingRooms[roomId].players.length === 0) {
+      delete waitingRooms[roomId];
+      console.log(`Waiting room ${roomId} deleted (empty)`);
+    }
+    
+    console.log(`User ${userId} left waiting room ${roomId}`);
+  });
+  
+  // Disconnect handling for waiting rooms
+  socket.on('disconnect', () => {
+    // Xử lý disconnect cho waiting rooms
+    Object.keys(waitingRooms).forEach(roomId => {
+      const playerIndex = waitingRooms[roomId].players.findIndex(p => p.id === socket.userId);
+      if (playerIndex !== -1) {
+        waitingRooms[roomId].players.splice(playerIndex, 1);
+        
+        // Broadcast update
+        socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
+        
+        // Xóa phòng nếu trống
+        if (waitingRooms[roomId].players.length === 0) {
+          delete waitingRooms[roomId];
+          console.log(`Waiting room ${roomId} deleted on disconnect`);
+        }
+      }
+    });
+  });
 });
