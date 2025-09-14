@@ -16,8 +16,7 @@ const waitingRooms = {}; // { roomId: { players: [], roomCreator: '', gameStarte
 
 // Hàm sắp xếp lại chỗ ngồi thông minh
 function reorganizeSeating(room) {
-  console.log('=== REORGANIZING SEATING ===');
-  console.log('Players before reorganization:', room.players.map(p => ({ name: p.name, role: p.role, team: p.team, position: p.position })));
+
   
   const players = room.players;
   const totalPlayers = players.length;
@@ -118,7 +117,7 @@ function reorganizeSeating(room) {
     console.log(`Five+ players - full teams + ${observers.length} observers`);
   }
   
-  console.log('Players after reorganization:', room.players.map(p => ({ name: p.name, role: p.role, team: p.team, position: p.position })));
+
 }
 
 // Xóa user khỏi phòng và dọn dẹp nếu phòng trống
@@ -778,26 +777,12 @@ socket.on("rematch-accepted", ({ roomId }) => {
     
 
     
-    // Log chi tiết từng player
-    console.log('=== DETAILED PLAYERS INFO ===');
-    console.log('Total players in waiting room:', waitingRooms[roomId].players.length);
-    waitingRooms[roomId].players.forEach((player, index) => {
-      console.log(`Player ${index + 1}:`, {
-        id: player.id,
-        name: player.name,
-        userName: player.userName,
-        team: player.team,
-        position: player.position,
-        isReady: player.isReady,
-        isObserver: player.isObserver
-      });
-    });
+   
     
     // Log tất cả userName trong phòng
-    console.log('=== ALL USERNAMES IN WAITING ROOM ===');
+   
     const allUserNames = waitingRooms[roomId].players.map(p => p.name || p.userName || 'Unknown');
-    console.log('UserNames list:', allUserNames);
-    console.log('UserNames count:', allUserNames.length);
+
     
     // Log theo team
     const team1Names = waitingRooms[roomId].players
@@ -821,7 +806,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
 
     socket.emit('waiting-room-updated', waitingRooms[roomId]);
     
-    console.log('Emitting waiting-room-updated to room:', `waiting-${roomId}`);
+
     socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
     
     // Emit update active rooms để RoomTab hiển thị phòng chờ
