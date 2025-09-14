@@ -152,6 +152,7 @@ const server = http.createServer((req, res) => {
     }));
     
     // Thêm waiting rooms 2vs2
+    console.log('Active rooms request - waitingRooms:', Object.keys(waitingRooms));
     const waitingRoomResults = Object.keys(waitingRooms).map(roomId => ({
       roomId,
       meta: { 
@@ -166,6 +167,7 @@ const server = http.createServer((req, res) => {
     
     // Gộp cả 2 loại phòng
     const allRooms = [...result, ...waitingRoomResults];
+    console.log('Returning all rooms:', allRooms.length, 'total');
     res.end(JSON.stringify(allRooms));
     return;
   }
@@ -585,6 +587,9 @@ socket.on("rematch-accepted", ({ roomId }) => {
   // Join waiting room
   socket.on('join-waiting-room', (data) => {
     const { roomId, userId, userName } = data;
+    console.log('Join waiting room - Received data:', data);
+    console.log('Join waiting room - Extracted:', { roomId, userId, userName });
+    console.log('userName type:', typeof userName, 'value:', userName);
     
     if (!waitingRooms[roomId]) {
       waitingRooms[roomId] = {
@@ -593,6 +598,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
         roomCreator: userId, // Người đầu tiên join sẽ là chủ phòng
         gameStarted: false
       };
+      console.log('Created new waiting room:', roomId);
     }
     
     // Kiểm tra xem user đã có trong phòng chưa
@@ -607,6 +613,8 @@ socket.on("rematch-accepted", ({ roomId }) => {
         isObserver: false,
         team: null // Sẽ được assign khi join team
       };
+      
+      console.log('Creating new player object:', newPlayer);
       
       // Logic xếp chỗ: chủ phòng → đội 1 chỗ 1, người 2 → đội 1 chỗ 2, người 3 → đội 2 chỗ 1, người 4 → đội 2 chỗ 2
       const totalPlayers = waitingRooms[roomId].players.length;
@@ -635,7 +643,10 @@ socket.on("rematch-accepted", ({ roomId }) => {
       }
       
       waitingRooms[roomId].players.push(newPlayer);
+      console.log('Added new player:', newPlayer);
     }
+    
+    console.log('Waiting room state:', waitingRooms[roomId]);
     
     socket.join(`waiting-${roomId}`);
     socket.emit('waiting-room-updated', waitingRooms[roomId]);
