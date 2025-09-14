@@ -160,11 +160,11 @@ const server = http.createServer((req, res) => {
             roomCreator: null, // Sẽ được set khi user đầu tiên join
             gameStarted: false
           };
-          console.log('Waiting room created via API:', roomId);
+
           
           // Emit update-active-rooms để thông báo cho tất cả client
           io.emit("update-active-rooms");
-          console.log('Emitted update-active-rooms after creating waiting room');
+
         }
         
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -650,7 +650,8 @@ socket.on("rematch-accepted", ({ roomId }) => {
         userName: userName, // Cũng lưu vào field userName để đảm bảo
         isReady: false,
         isObserver: false,
-        team: null // Sẽ được assign khi join team
+        team: null, // Sẽ được assign khi join team
+        role: 'player' // Mặc định là player, sẽ được set thành 'creator' nếu là người đầu tiên
       };
       
       console.log('=== CREATING NEW PLAYER ===');
@@ -661,43 +662,49 @@ socket.on("rematch-accepted", ({ roomId }) => {
       console.log('newPlayer.userName:', newPlayer.userName);
       console.log('Full newPlayer object:', JSON.stringify(newPlayer, null, 2));
       
-      // Logic xếp chỗ: chủ phòng → đội 1 chỗ 1, người 2 → đội 1 chỗ 2, người 3 → đội 2 chỗ 1, người 4 → đội 2 chỗ 2
+      // Logic phân vai trò và xếp chỗ
       const totalPlayers = waitingRooms[roomId].players.length;
       
-      console.log('=== ASSIGNING TEAM AND POSITION ===');
+      console.log('=== ASSIGNING ROLE, TEAM AND POSITION ===');
       console.log('Total players before adding new player:', totalPlayers);
       
       if (totalPlayers === 0) {
-        // Chủ phòng (người đầu tiên) → đội 1 chỗ 1
+        // Người đầu tiên = Chủ phòng
+        newPlayer.role = 'creator';
         newPlayer.team = 'team1';
         newPlayer.position = 1;
-        console.log('Assigned to Team 1, Position 1 (Host)');
+        console.log('Assigned as CREATOR - Team 1, Position 1');
       } else if (totalPlayers === 1) {
-        // Người thứ 2 → đội 1 chỗ 2
+        // Người thứ 2 = Người chơi
+        newPlayer.role = 'player';
         newPlayer.team = 'team1';
         newPlayer.position = 2;
-        console.log('Assigned to Team 1, Position 2');
+        console.log('Assigned as PLAYER - Team 1, Position 2');
       } else if (totalPlayers === 2) {
-        // Người thứ 3 → đội 2 chỗ 1
+        // Người thứ 3 = Người chơi
+        newPlayer.role = 'player';
         newPlayer.team = 'team2';
         newPlayer.position = 1;
-        console.log('Assigned to Team 2, Position 1');
+        console.log('Assigned as PLAYER - Team 2, Position 1');
       } else if (totalPlayers === 3) {
-        // Người thứ 4 → đội 2 chỗ 2
+        // Người thứ 4 = Người chơi
+        newPlayer.role = 'player';
         newPlayer.team = 'team2';
         newPlayer.position = 2;
-        console.log('Assigned to Team 2, Position 2');
+        console.log('Assigned as PLAYER - Team 2, Position 2');
       } else {
-        // Từ người thứ 5 trở đi → observer
+        // Từ người thứ 5 trở đi = Người xem
+        newPlayer.role = 'observer';
         newPlayer.team = null;
         newPlayer.position = null;
         newPlayer.isObserver = true;
-        console.log('Assigned as Observer (5th+ player)');
+        console.log('Assigned as OBSERVER (5th+ player)');
       }
       
       console.log('Final player assignment:', {
         id: newPlayer.id,
         name: newPlayer.name,
+        role: newPlayer.role,
         team: newPlayer.team,
         position: newPlayer.position,
         isObserver: newPlayer.isObserver
@@ -786,13 +793,17 @@ socket.on("rematch-accepted", ({ roomId }) => {
     if (!waitingRooms[roomId]) return;
     
     const player = waitingRooms[roomId].players.find(p => p.id === userId);
-    if (player && !player.isObserver) {
+    if (player && player.role === 'player' && !player.isObserver) {
       player.isReady = !player.isReady;
       
       socket.emit('waiting-room-updated', waitingRooms[roomId]);
       socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
       
-      console.log(`User ${userId} toggled ready status in waiting room ${roomId}`);
+      console.log(`User ${userId} (${player.role}) toggled ready status in waiting room ${roomId}`);
+    } else if (player && player.role === 'creator') {
+      socket.emit('error', { message: 'Chủ phòng không cần bấm sẵn sàng, hãy bấm Bắt đầu' });
+    } else if (player && player.role === 'observer') {
+      socket.emit('error', { message: 'Người xem không thể bấm sẵn sàng' });
     }
   });
   
@@ -804,21 +815,38 @@ socket.on("rematch-accepted", ({ roomId }) => {
     
     const player = waitingRooms[roomId].players.find(p => p.id === userId);
     if (player) {
+      // Chủ phòng không thể chuyển thành observer
+      if (player.role === 'creator') {
+        socket.emit('error', { message: 'Chủ phòng không thể chuyển thành người xem' });
+        return;
+      }
+      
       player.isObserver = !player.isObserver;
       
       if (player.isObserver) {
+        // Chuyển thành observer
+        player.role = 'observer';
         player.team = null;
+        player.position = null;
         player.isReady = false;
+        console.log(`User ${userId} switched to OBSERVER role`);
       } else {
+        // Chuyển thành player
+        player.role = 'player';
+        player.isReady = false;
+        
         // Auto assign team khi bỏ observer
         const team1Count = waitingRooms[roomId].players.filter(p => p.team === 'team1' && !p.isObserver).length;
         const team2Count = waitingRooms[roomId].players.filter(p => p.team === 'team2' && !p.isObserver).length;
         
         if (team1Count < 2) {
           player.team = 'team1';
+          player.position = team1Count + 1;
         } else if (team2Count < 2) {
           player.team = 'team2';
+          player.position = team2Count + 1;
         }
+        console.log(`User ${userId} switched to PLAYER role`);
       }
       
       socket.emit('waiting-room-updated', waitingRooms[roomId]);
@@ -832,7 +860,10 @@ socket.on("rematch-accepted", ({ roomId }) => {
   socket.on('start-game', (data) => {
     const { roomId, userId } = data;
     
-    if (!waitingRooms[roomId] || waitingRooms[roomId].roomCreator !== userId) {
+    if (!waitingRooms[roomId]) return;
+    
+    const player = waitingRooms[roomId].players.find(p => p.id === userId);
+    if (!player || player.role !== 'creator') {
       socket.emit('error', { message: 'Chỉ chủ phòng mới có thể bắt đầu game' });
       return;
     }
