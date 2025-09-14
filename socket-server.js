@@ -618,9 +618,12 @@ socket.on("rematch-accepted", ({ roomId }) => {
   // Join waiting room
   socket.on('join-waiting-room', (data) => {
     const { roomId, userId, userName } = data;
-    console.log('Join waiting room - Received data:', data);
-    console.log('Join waiting room - Extracted:', { roomId, userId, userName });
+    console.log('=== JOIN WAITING ROOM DEBUG ===');
+    console.log('Full data received:', JSON.stringify(data, null, 2));
+    console.log('Extracted values:', { roomId, userId, userName });
     console.log('userName type:', typeof userName, 'value:', userName);
+    console.log('userName length:', userName ? userName.length : 'null/undefined');
+    console.log('userName truthy:', !!userName);
     
     if (!waitingRooms[roomId]) {
       waitingRooms[roomId] = {
@@ -639,13 +642,17 @@ socket.on("rematch-accepted", ({ roomId }) => {
       // Thêm player mới
       const newPlayer = {
         id: userId,
-        name: userName,
+        name: userName, // Lưu userName vào field name
+        userName: userName, // Cũng lưu vào field userName để đảm bảo
         isReady: false,
         isObserver: false,
         team: null // Sẽ được assign khi join team
       };
       
-      console.log('Creating new player object:', newPlayer);
+      console.log('=== CREATING NEW PLAYER ===');
+      console.log('Input userName:', userName);
+      console.log('newPlayer.name:', newPlayer.name);
+      console.log('Full newPlayer object:', JSON.stringify(newPlayer, null, 2));
       
       // Logic xếp chỗ: chủ phòng → đội 1 chỗ 1, người 2 → đội 1 chỗ 2, người 3 → đội 2 chỗ 1, người 4 → đội 2 chỗ 2
       const totalPlayers = waitingRooms[roomId].players.length;
@@ -677,7 +684,9 @@ socket.on("rematch-accepted", ({ roomId }) => {
       console.log('Added new player:', newPlayer);
     }
     
-    console.log('Waiting room state:', waitingRooms[roomId]);
+    console.log('=== WAITING ROOM STATE ===');
+    console.log('Waiting room state:', JSON.stringify(waitingRooms[roomId], null, 2));
+    console.log('Players in room:', waitingRooms[roomId].players.map(p => ({ id: p.id, name: p.name, team: p.team, position: p.position })));
     
     socket.join(`waiting-${roomId}`);
     socket.emit('waiting-room-updated', waitingRooms[roomId]);
