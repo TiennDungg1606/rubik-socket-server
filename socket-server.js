@@ -523,8 +523,15 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
   socket.on("chat", ({ roomId, userId, userName, message }) => {
     const room = roomId.toUpperCase();
     if (!room || !userId || !userName || !message) return;
-    // Gửi tin nhắn cho tất cả user trong phòng
-    io.to(room).emit("chat", { userId, userName, message });
+    
+    // Kiểm tra xem có phải waiting room không
+    if (waitingRooms[room]) {
+      // Gửi tin nhắn cho tất cả user trong waiting room
+      io.to(`waiting-${room}`).emit("chat", { userId, userName, message });
+    } else {
+      // Gửi tin nhắn cho tất cả user trong phòng thường
+      io.to(room).emit("chat", { userId, userName, message });
+    }
   });
 
   socket.on("solve", ({ roomId, userId, userName, time }) => {
