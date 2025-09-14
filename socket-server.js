@@ -634,9 +634,19 @@ socket.on("rematch-accepted", ({ roomId }) => {
         roomId,
         players: [],
         roomCreator: userId, // Người đầu tiên join sẽ là chủ phòng
-        gameStarted: false
+        gameStarted: false,
+        createdAt: Date.now() // Thêm timestamp để track thời gian tạo
       };
       console.log('Created new waiting room:', roomId);
+      
+      // Set timeout xóa phòng sau 5 phút không bắt đầu
+      setTimeout(() => {
+        if (waitingRooms[roomId] && !waitingRooms[roomId].gameStarted) {
+          console.log(`⏰ Waiting room ${roomId} deleted after 5 minutes of inactivity`);
+          delete waitingRooms[roomId];
+          io.emit("update-active-rooms");
+        }
+      }, 5 * 60 * 1000); // 5 phút
     }
     
     // Kiểm tra xem user đã có trong phòng chưa
@@ -890,6 +900,15 @@ socket.on("rematch-accepted", ({ roomId }) => {
     socket.to(`waiting-${roomId}`).emit('game-started', { roomId, gameMode: '2vs2' });
     
     console.log(`Game started in waiting room ${roomId}`);
+    
+    // Xóa waiting room sau khi bắt đầu game (delay 2 giây để đảm bảo clients đã redirect)
+    setTimeout(() => {
+      if (waitingRooms[roomId]) {
+        console.log(`🗑️ Waiting room ${roomId} deleted after game started`);
+        delete waitingRooms[roomId];
+        io.emit("update-active-rooms");
+      }
+    }, 2000); // 2 giây delay
   });
   
   // Leave waiting room
