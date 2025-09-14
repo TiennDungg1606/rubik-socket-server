@@ -185,13 +185,12 @@ const server = http.createServer((req, res) => {
     }));
     
     // Thêm waiting rooms 2vs2
-    console.log('Active rooms request - waitingRooms:', Object.keys(waitingRooms));
     const waitingRoomResults = Object.keys(waitingRooms).map(roomId => ({
       roomId,
       meta: { 
         gameMode: '2vs2',
         event: '3x3', // default event
-        displayName: `Waiting Room ${roomId}`,
+        displayName: `Waiting ${roomId}`,
         isWaitingRoom: true
       },
       usersCount: waitingRooms[roomId].players.length,
@@ -200,7 +199,6 @@ const server = http.createServer((req, res) => {
     
     // Gộp cả 2 loại phòng
     const allRooms = [...result, ...waitingRoomResults];
-    console.log('Returning all rooms:', allRooms.length, 'total');
     res.end(JSON.stringify(allRooms));
     return;
   }
