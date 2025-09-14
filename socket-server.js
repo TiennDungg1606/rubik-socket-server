@@ -827,7 +827,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
       if (player.role === 'creator') {
         // Chủ phòng có thể toggle observer nhưng vẫn giữ role creator
         player.isObserver = !player.isObserver;
-        player.isReady = false;
+        player.isReady = true; // Chủ phòng luôn sẵn sàng
       } else {
         // Toggle observer status cho player thường
         player.isObserver = !player.isObserver;
