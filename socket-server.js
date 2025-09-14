@@ -256,7 +256,7 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const { roomId, gameMode, event, displayName } = JSON.parse(body);
-        console.log('Creating waiting room via API:', { roomId, gameMode, event, displayName });
+ 
         
         // Tạo waiting room nếu chưa tồn tại
         if (!waitingRooms[roomId]) {
@@ -738,7 +738,6 @@ socket.on("rematch-accepted", ({ roomId }) => {
         gameStarted: false,
         createdAt: Date.now() // Thêm timestamp để track thời gian tạo
       };
-      console.log('Created new waiting room:', roomId);
       
       // Set timeout xóa phòng sau 5 phút không bắt đầu
       setTimeout(() => {
@@ -769,7 +768,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
       
       // Thêm player mới vào danh sách
       waitingRooms[roomId].players.push(newPlayer);
-      console.log('Added new player:', newPlayer);
+  
       
       // Sử dụng thuật toán sắp xếp thông minh
       reorganizeSeating(waitingRooms[roomId]);
@@ -779,40 +778,20 @@ socket.on("rematch-accepted", ({ roomId }) => {
     
    
     
-    // Log tất cả userName trong phòng
-   
-    const allUserNames = waitingRooms[roomId].players.map(p => p.name || p.userName || 'Unknown');
-
-    
-    // Log theo team
-    const team1Names = waitingRooms[roomId].players
-      .filter(p => p.team === 'team1')
-      .map(p => p.name || p.userName || 'Unknown');
-    const team2Names = waitingRooms[roomId].players
-      .filter(p => p.team === 'team2')
-      .map(p => p.name || p.userName || 'Unknown');
-    
-    console.log('Team 1 UserNames:', team1Names);
-    console.log('Team 2 UserNames:', team2Names);
-    console.log('Observer UserNames:', waitingRooms[roomId].players
-      .filter(p => p.isObserver)
-      .map(p => p.name || p.userName || 'Unknown'));
-    
     socket.join(`waiting-${roomId}`);
     
-    // Log chi tiết data được emit
- 
-    
-
     socket.emit('waiting-room-updated', waitingRooms[roomId]);
-    
-
     socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
     
     // Emit update active rooms để RoomTab hiển thị phòng chờ
     io.emit("update-active-rooms");
     
-    console.log(`User ${userId} joined waiting room ${roomId}`);
+    // Log số người trong phòng chờ
+    const totalPlayers = waitingRooms[roomId].players.length;
+    const team1Count = waitingRooms[roomId].players.filter(p => p.team === 'team1').length;
+    const team2Count = waitingRooms[roomId].players.filter(p => p.team === 'team2').length;
+    const observerCount = waitingRooms[roomId].players.filter(p => p.isObserver).length;
+    console.log(`📊 Waiting room ${roomId}: ${totalPlayers} players (Team1: ${team1Count}, Team2: ${team2Count}, Observers: ${observerCount})`);
   });
   
   // Toggle ready status
@@ -849,8 +828,6 @@ socket.on("rematch-accepted", ({ roomId }) => {
         // Chủ phòng có thể toggle observer nhưng vẫn giữ role creator
         player.isObserver = !player.isObserver;
         player.isReady = false;
-        
-        console.log(`Creator ${userId} toggled observer status to ${player.isObserver}, keeping creator role`);
       } else {
         // Toggle observer status cho player thường
         player.isObserver = !player.isObserver;
@@ -858,14 +835,10 @@ socket.on("rematch-accepted", ({ roomId }) => {
         
         // Sử dụng thuật toán sắp xếp thông minh cho player thường
         reorganizeSeating(waitingRooms[roomId]);
-        
-        console.log(`User ${userId} toggled observer status, room reorganized`);
       }
       
       socket.emit('waiting-room-updated', waitingRooms[roomId]);
       socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
-      
-      console.log(`User ${userId} toggled observer status in waiting room ${roomId}`);
     }
   });
   
@@ -902,12 +875,9 @@ socket.on("rematch-accepted", ({ roomId }) => {
     socket.emit('game-started', { roomId, gameMode: '2vs2' });
     socket.to(`waiting-${roomId}`).emit('game-started', { roomId, gameMode: '2vs2' });
     
-    console.log(`Game started in waiting room ${roomId}`);
-    
     // Xóa waiting room sau khi bắt đầu game (delay 2 giây để đảm bảo clients đã redirect)
     setTimeout(() => {
       if (waitingRooms[roomId]) {
-        console.log(`🗑️ Waiting room ${roomId} deleted after game started`);
         delete waitingRooms[roomId];
         io.emit("update-active-rooms");
       }
@@ -930,7 +900,6 @@ socket.on("rematch-accepted", ({ roomId }) => {
     // Nếu phòng trống, xóa phòng
     if (waitingRooms[roomId].players.length === 0) {
       delete waitingRooms[roomId];
-      console.log(`Waiting room ${roomId} deleted (empty)`);
       io.emit("update-active-rooms");
       return;
     }
@@ -941,7 +910,6 @@ socket.on("rematch-accepted", ({ roomId }) => {
       if (newCreator) {
         newCreator.role = 'creator';
         waitingRooms[roomId].roomCreator = newCreator.id;
-        console.log(`New creator assigned: ${newCreator.name} (${newCreator.id})`);
       }
     }
     
@@ -969,7 +937,6 @@ socket.on("rematch-accepted", ({ roomId }) => {
         // Nếu phòng trống, xóa phòng
         if (waitingRooms[roomId].players.length === 0) {
           delete waitingRooms[roomId];
-          console.log(`Waiting room ${roomId} deleted on disconnect`);
           io.emit("update-active-rooms");
           return;
         }
