@@ -798,7 +798,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
       .filter(p => p.isObserver)
       .map(p => p.name || p.userName || 'Unknown'));
     
- 
+    socket.join(`waiting-${roomId}`);
     
     // Log chi tiết data được emit
  
