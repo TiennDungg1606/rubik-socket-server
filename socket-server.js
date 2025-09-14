@@ -232,6 +232,11 @@ server.listen(3001, '0.0.0.0', () => {
 });
 
 io.on("connection", (socket) => {
+  console.log('=== NEW SOCKET CONNECTION ===');
+  console.log('Socket ID:', socket.id);
+  console.log('Socket connected:', socket.connected);
+  console.log('Total connected sockets:', io.engine.clientsCount);
+  
   // Relay timer-prep event to other users in the room
   socket.on("timer-prep", (data) => {
     if (!data || !data.roomId) return;
@@ -619,6 +624,14 @@ socket.on("rematch-accepted", ({ roomId }) => {
 
   // ===== WAITING ROOM 2VS2 LOGIC =====
   
+  // Debug: Log tất cả events được nhận
+  socket.onAny((eventName, ...args) => {
+    console.log('=== SOCKET EVENT RECEIVED ===');
+    console.log('Socket ID:', socket.id);
+    console.log('Event name:', eventName);
+    console.log('Event args:', args);
+  });
+  
   // Join waiting room
   socket.on('join-waiting-room', (data) => {
     const { roomId, userId, userName } = data;
@@ -854,7 +867,11 @@ socket.on("rematch-accepted", ({ roomId }) => {
   });
   
   // Disconnect handling for waiting rooms
-  socket.on('disconnect', () => {
+  socket.on('disconnect', (reason) => {
+    console.log('=== SOCKET DISCONNECTED ===');
+    console.log('Socket ID:', socket.id);
+    console.log('Disconnect reason:', reason);
+    console.log('Total connected sockets after disconnect:', io.engine.clientsCount);
     // Xử lý disconnect cho waiting rooms
     Object.keys(waitingRooms).forEach(roomId => {
       const playerIndex = waitingRooms[roomId].players.findIndex(p => p.id === socket.userId);
