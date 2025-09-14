@@ -37,24 +37,27 @@ function reorganizeSeating(room) {
     player.role = 'creator';
     player.team = 'team1';
     player.position = 1;
-    console.log('Single player - assigned as CREATOR');
+    player.isReady = true; // Chủ phòng luôn sẵn sàng
+
   } else if (totalPlayers === 2) {
     // 2 người = chủ phòng + 1 người chơi
     const [creator, player] = players;
     creator.role = 'creator';
     creator.team = 'team1';
     creator.position = 1;
+    creator.isReady = true; // Chủ phòng luôn sẵn sàng
     
     player.role = 'player';
     player.team = 'team1';
     player.position = 2;
-    console.log('Two players - creator + player in team1');
+
   } else if (totalPlayers === 3) {
     // 3 người = chủ phòng + 2 người chơi
     const [creator, player1, player2] = players;
     creator.role = 'creator';
     creator.team = 'team1';
     creator.position = 1;
+    creator.isReady = true; // Chủ phòng luôn sẵn sàng
     
     player1.role = 'player';
     player1.team = 'team1';
@@ -70,6 +73,7 @@ function reorganizeSeating(room) {
     creator.role = 'creator';
     creator.team = 'team1';
     creator.position = 1;
+    creator.isReady = true; // Chủ phòng luôn sẵn sàng
     
     player1.role = 'player';
     player1.team = 'team1';
@@ -90,6 +94,7 @@ function reorganizeSeating(room) {
     creator.role = 'creator';
     creator.team = 'team1';
     creator.position = 1;
+    creator.isReady = true; // Chủ phòng luôn sẵn sàng
     
     player1.role = 'player';
     player1.team = 'team1';
@@ -724,12 +729,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
   // Join waiting room
   socket.on('join-waiting-room', (data) => {
     const { roomId, userId, userName } = data;
-    console.log('=== JOIN WAITING ROOM DEBUG ===');
-    console.log('Full data received:', JSON.stringify(data, null, 2));
-    console.log('Extracted values:', { roomId, userId, userName });
-    console.log('userName type:', typeof userName, 'value:', userName);
-    console.log('userName length:', userName ? userName.length : 'null/undefined');
-    console.log('userName truthy:', !!userName);
+
     
     if (!waitingRooms[roomId]) {
       waitingRooms[roomId] = {
@@ -766,13 +766,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
         role: 'player' // Mặc định là player, sẽ được set thành 'creator' nếu là người đầu tiên
       };
       
-      console.log('=== CREATING NEW PLAYER ===');
-      console.log('Input userName:', userName);
-      console.log('Input userName type:', typeof userName);
-      console.log('Input userName length:', userName ? userName.length : 'null/undefined');
-      console.log('newPlayer.name:', newPlayer.name);
-      console.log('newPlayer.userName:', newPlayer.userName);
-      console.log('Full newPlayer object:', JSON.stringify(newPlayer, null, 2));
+ 
       
       // Thêm player mới vào danh sách
       waitingRooms[roomId].players.push(newPlayer);
@@ -782,12 +776,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
       reorganizeSeating(waitingRooms[roomId]);
     }
     
-    console.log('=== WAITING ROOM STATE ===');
-    console.log('Waiting room state:', JSON.stringify(waitingRooms[roomId], null, 2));
-    console.log('Players in room:', waitingRooms[roomId].players.map(p => ({ id: p.id, name: p.name, team: p.team, position: p.position })));
-    console.log('Players count:', waitingRooms[roomId].players.length);
-    console.log('Team 1 players:', waitingRooms[roomId].players.filter(p => p.team === 'team1'));
-    console.log('Team 2 players:', waitingRooms[roomId].players.filter(p => p.team === 'team2'));
+
     
     // Log chi tiết từng player
     console.log('=== DETAILED PLAYERS INFO ===');
@@ -824,25 +813,12 @@ socket.on("rematch-accepted", ({ roomId }) => {
       .filter(p => p.isObserver)
       .map(p => p.name || p.userName || 'Unknown'));
     
-    socket.join(`waiting-${roomId}`);
-    console.log('=== EMITTING WAITING ROOM UPDATE ===');
-    console.log('Socket ID:', socket.id);
-    console.log('Room ID:', `waiting-${roomId}`);
-    console.log('Data being emitted:', JSON.stringify(waitingRooms[roomId], null, 2));
+ 
     
     // Log chi tiết data được emit
-    console.log('=== EMIT DATA SUMMARY ===');
-    console.log('Room ID:', waitingRooms[roomId].roomId);
-    console.log('Players count:', waitingRooms[roomId].players.length);
-    console.log('Players data:', waitingRooms[roomId].players.map(p => ({
-      id: p.id,
-      name: p.name,
-      userName: p.userName,
-      team: p.team,
-      position: p.position
-    })));
+ 
     
-    console.log('Emitting waiting-room-updated to socket:', socket.id);
+
     socket.emit('waiting-room-updated', waitingRooms[roomId]);
     
     console.log('Emitting waiting-room-updated to room:', `waiting-${roomId}`);
@@ -867,7 +843,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
       socket.emit('waiting-room-updated', waitingRooms[roomId]);
       socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
       
-      console.log(`User ${userId} (${player.role}) toggled ready status in waiting room ${roomId}`);
+
     } else if (player && player.role === 'creator') {
       socket.emit('error', { message: 'Chủ phòng không cần bấm sẵn sàng, hãy bấm Bắt đầu' });
     } else if (player && player.role === 'observer') {
@@ -991,7 +967,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
     socket.emit('waiting-room-updated', waitingRooms[roomId]);
     socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
     
-    console.log(`User ${userId} left waiting room ${roomId}`);
+
   });
   
   // Disconnect handling for waiting rooms
