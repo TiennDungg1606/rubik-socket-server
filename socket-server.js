@@ -161,6 +161,10 @@ const server = http.createServer((req, res) => {
             gameStarted: false
           };
           console.log('Waiting room created via API:', roomId);
+          
+          // Emit update-active-rooms để thông báo cho tất cả client
+          io.emit("update-active-rooms");
+          console.log('Emitted update-active-rooms after creating waiting room');
         }
         
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -687,9 +691,14 @@ socket.on("rematch-accepted", ({ roomId }) => {
     console.log('=== WAITING ROOM STATE ===');
     console.log('Waiting room state:', JSON.stringify(waitingRooms[roomId], null, 2));
     console.log('Players in room:', waitingRooms[roomId].players.map(p => ({ id: p.id, name: p.name, team: p.team, position: p.position })));
+    console.log('Players count:', waitingRooms[roomId].players.length);
+    console.log('Team 1 players:', waitingRooms[roomId].players.filter(p => p.team === 'team1'));
+    console.log('Team 2 players:', waitingRooms[roomId].players.filter(p => p.team === 'team2'));
     
     socket.join(`waiting-${roomId}`);
+    console.log('Emitting waiting-room-updated to socket:', socket.id);
     socket.emit('waiting-room-updated', waitingRooms[roomId]);
+    console.log('Emitting waiting-room-updated to room:', `waiting-${roomId}`);
     socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
     
     // Emit update active rooms để RoomTab hiển thị phòng chờ
