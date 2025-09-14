@@ -139,7 +139,6 @@ const server = http.createServer((req, res) => {
     return;
   }
   // REST endpoint: /active-rooms
-  // REST endpoint: /active-rooms
   if (parsed.pathname === "/active-rooms") {
     res.writeHead(200, { "Content-Type": "application/json" });
     // Trả về danh sách phòng kèm meta và số lượng user
@@ -148,7 +147,23 @@ const server = http.createServer((req, res) => {
       meta: roomsMeta[roomId] || {},
       usersCount: Array.isArray(rooms[roomId]) ? rooms[roomId].length : 0
     }));
-    res.end(JSON.stringify(result));
+    
+    // Thêm waiting rooms 2vs2
+    const waitingRoomResults = Object.keys(waitingRooms).map(roomId => ({
+      roomId,
+      meta: { 
+        gameMode: '2vs2',
+        event: '3x3', // default event
+        displayName: `Waiting Room ${roomId}`,
+        isWaitingRoom: true
+      },
+      usersCount: waitingRooms[roomId].players.length,
+      isWaitingRoom: true
+    }));
+    
+    // Gộp cả 2 loại phòng
+    const allRooms = [...result, ...waitingRoomResults];
+    res.end(JSON.stringify(allRooms));
     return;
   }
 
@@ -593,16 +608,31 @@ socket.on("rematch-accepted", ({ roomId }) => {
         team: null // Sẽ được assign khi join team
       };
       
-      // Auto assign team nếu chưa đủ người
-      const team1Count = waitingRooms[roomId].players.filter(p => p.team === 'team1' && !p.isObserver).length;
-      const team2Count = waitingRooms[roomId].players.filter(p => p.team === 'team2' && !p.isObserver).length;
+      // Logic xếp chỗ: chủ phòng → đội 1 chỗ 1, người 2 → đội 1 chỗ 2, người 3 → đội 2 chỗ 1, người 4 → đội 2 chỗ 2
+      const totalPlayers = waitingRooms[roomId].players.length;
       
-      if (team1Count < 2) {
+      if (totalPlayers === 0) {
+        // Chủ phòng (người đầu tiên) → đội 1 chỗ 1
         newPlayer.team = 'team1';
-      } else if (team2Count < 2) {
+        newPlayer.position = 1;
+      } else if (totalPlayers === 1) {
+        // Người thứ 2 → đội 1 chỗ 2
+        newPlayer.team = 'team1';
+        newPlayer.position = 2;
+      } else if (totalPlayers === 2) {
+        // Người thứ 3 → đội 2 chỗ 1
         newPlayer.team = 'team2';
+        newPlayer.position = 1;
+      } else if (totalPlayers === 3) {
+        // Người thứ 4 → đội 2 chỗ 2
+        newPlayer.team = 'team2';
+        newPlayer.position = 2;
+      } else {
+        // Từ người thứ 5 trở đi → observer
+        newPlayer.team = null;
+        newPlayer.position = null;
+        newPlayer.isObserver = true;
       }
-      // Nếu cả 2 team đã đủ, player sẽ là observer
       
       waitingRooms[roomId].players.push(newPlayer);
     }
@@ -610,6 +640,9 @@ socket.on("rematch-accepted", ({ roomId }) => {
     socket.join(`waiting-${roomId}`);
     socket.emit('waiting-room-updated', waitingRooms[roomId]);
     socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
+    
+    // Emit update active rooms để RoomTab hiển thị phòng chờ
+    io.emit("update-active-rooms");
     
     console.log(`User ${userId} joined waiting room ${roomId}`);
   });
