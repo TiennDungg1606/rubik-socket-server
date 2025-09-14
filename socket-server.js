@@ -11,6 +11,9 @@ const roomHosts = {}; // Lưu userId chủ phòng cho từng room
 const roomTurns = {}; // Lưu userId người được quyền giải (turn) cho từng room
 // Đã loại bỏ logic người xem (spectator)
 
+// Quản lý phòng chờ 2vs2
+const waitingRooms = {}; // { roomId: { players: [], roomCreator: '', gameStarted: false } }
+
 // Xóa user khỏi phòng và dọn dẹp nếu phòng trống
 function removeUserAndCleanup(room, userId) {
   if (!room || !rooms[room]) return;
@@ -578,9 +581,6 @@ socket.on("rematch-accepted", ({ roomId }) => {
   });
 
   // ===== WAITING ROOM 2VS2 LOGIC =====
-  
-  // Quản lý phòng chờ 2vs2
-  const waitingRooms = {}; // { roomId: { players: [], roomCreator: '', gameStarted: false } }
   
   // Join waiting room
   socket.on('join-waiting-room', (data) => {
