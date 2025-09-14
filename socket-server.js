@@ -141,6 +141,39 @@ const server = http.createServer((req, res) => {
     }
     return;
   }
+  // REST endpoint: /create-waiting-room
+  if (parsed.pathname === "/create-waiting-room") {
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk.toString();
+    });
+    req.on('end', () => {
+      try {
+        const { roomId, gameMode, event, displayName } = JSON.parse(body);
+        console.log('Creating waiting room via API:', { roomId, gameMode, event, displayName });
+        
+        // Tạo waiting room nếu chưa tồn tại
+        if (!waitingRooms[roomId]) {
+          waitingRooms[roomId] = {
+            roomId,
+            players: [],
+            roomCreator: null, // Sẽ được set khi user đầu tiên join
+            gameStarted: false
+          };
+          console.log('Waiting room created via API:', roomId);
+        }
+        
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, roomId }));
+      } catch (error) {
+        console.error('Error creating waiting room:', error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: 'Failed to create waiting room' }));
+      }
+    });
+    return;
+  }
+
   // REST endpoint: /active-rooms
   if (parsed.pathname === "/active-rooms") {
     res.writeHead(200, { "Content-Type": "application/json" });
