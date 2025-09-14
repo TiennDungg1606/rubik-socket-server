@@ -232,11 +232,6 @@ server.listen(3001, '0.0.0.0', () => {
 });
 
 io.on("connection", (socket) => {
-  console.log('=== NEW SOCKET CONNECTION ===');
-  console.log('Socket ID:', socket.id);
-  console.log('Socket connected:', socket.connected);
-  console.log('Total connected sockets:', io.engine.clientsCount);
-  
   // Relay timer-prep event to other users in the room
   socket.on("timer-prep", (data) => {
     if (!data || !data.roomId) return;
@@ -624,14 +619,6 @@ socket.on("rematch-accepted", ({ roomId }) => {
 
   // ===== WAITING ROOM 2VS2 LOGIC =====
   
-  // Debug: Log tất cả events được nhận
-  socket.onAny((eventName, ...args) => {
-    console.log('=== SOCKET EVENT RECEIVED ===');
-    console.log('Socket ID:', socket.id);
-    console.log('Event name:', eventName);
-    console.log('Event args:', args);
-  });
-  
   // Join waiting room
   socket.on('join-waiting-room', (data) => {
     const { roomId, userId, userName } = data;
@@ -729,6 +716,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
     
     // Log chi tiết từng player
     console.log('=== DETAILED PLAYERS INFO ===');
+    console.log('Total players in waiting room:', waitingRooms[roomId].players.length);
     waitingRooms[roomId].players.forEach((player, index) => {
       console.log(`Player ${index + 1}:`, {
         id: player.id,
@@ -741,11 +729,43 @@ socket.on("rematch-accepted", ({ roomId }) => {
       });
     });
     
+    // Log tất cả userName trong phòng
+    console.log('=== ALL USERNAMES IN WAITING ROOM ===');
+    const allUserNames = waitingRooms[roomId].players.map(p => p.name || p.userName || 'Unknown');
+    console.log('UserNames list:', allUserNames);
+    console.log('UserNames count:', allUserNames.length);
+    
+    // Log theo team
+    const team1Names = waitingRooms[roomId].players
+      .filter(p => p.team === 'team1')
+      .map(p => p.name || p.userName || 'Unknown');
+    const team2Names = waitingRooms[roomId].players
+      .filter(p => p.team === 'team2')
+      .map(p => p.name || p.userName || 'Unknown');
+    
+    console.log('Team 1 UserNames:', team1Names);
+    console.log('Team 2 UserNames:', team2Names);
+    console.log('Observer UserNames:', waitingRooms[roomId].players
+      .filter(p => p.isObserver)
+      .map(p => p.name || p.userName || 'Unknown'));
+    
     socket.join(`waiting-${roomId}`);
     console.log('=== EMITTING WAITING ROOM UPDATE ===');
     console.log('Socket ID:', socket.id);
     console.log('Room ID:', `waiting-${roomId}`);
     console.log('Data being emitted:', JSON.stringify(waitingRooms[roomId], null, 2));
+    
+    // Log chi tiết data được emit
+    console.log('=== EMIT DATA SUMMARY ===');
+    console.log('Room ID:', waitingRooms[roomId].roomId);
+    console.log('Players count:', waitingRooms[roomId].players.length);
+    console.log('Players data:', waitingRooms[roomId].players.map(p => ({
+      id: p.id,
+      name: p.name,
+      userName: p.userName,
+      team: p.team,
+      position: p.position
+    })));
     
     console.log('Emitting waiting-room-updated to socket:', socket.id);
     socket.emit('waiting-room-updated', waitingRooms[roomId]);
@@ -867,11 +887,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
   });
   
   // Disconnect handling for waiting rooms
-  socket.on('disconnect', (reason) => {
-    console.log('=== SOCKET DISCONNECTED ===');
-    console.log('Socket ID:', socket.id);
-    console.log('Disconnect reason:', reason);
-    console.log('Total connected sockets after disconnect:', io.engine.clientsCount);
+  socket.on('disconnect', () => {
     // Xử lý disconnect cho waiting rooms
     Object.keys(waitingRooms).forEach(roomId => {
       const playerIndex = waitingRooms[roomId].players.findIndex(p => p.id === socket.userId);
