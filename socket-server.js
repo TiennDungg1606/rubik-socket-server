@@ -883,20 +883,23 @@ socket.on("rematch-accepted", ({ roomId }) => {
     
     const player = waitingRooms[roomId].players.find(p => p.id === userId);
     if (player) {
-      // Chủ phòng không thể chuyển thành observer
+      // Cho phép chủ phòng chuyển thành observer nhưng vẫn giữ vai trò creator
       if (player.role === 'creator') {
-        socket.emit('error', { message: 'Chủ phòng không thể chuyển thành người xem' });
-        return;
+        // Chủ phòng có thể toggle observer nhưng vẫn giữ role creator
+        player.isObserver = !player.isObserver;
+        player.isReady = false;
+        
+        console.log(`Creator ${userId} toggled observer status to ${player.isObserver}, keeping creator role`);
+      } else {
+        // Toggle observer status cho player thường
+        player.isObserver = !player.isObserver;
+        player.isReady = false;
+        
+        // Sử dụng thuật toán sắp xếp thông minh cho player thường
+        reorganizeSeating(waitingRooms[roomId]);
+        
+        console.log(`User ${userId} toggled observer status, room reorganized`);
       }
-      
-      // Toggle observer status
-      player.isObserver = !player.isObserver;
-      player.isReady = false;
-      
-      // Sử dụng thuật toán sắp xếp thông minh
-      reorganizeSeating(waitingRooms[roomId]);
-      
-      console.log(`User ${userId} toggled observer status, room reorganized`);
       
       socket.emit('waiting-room-updated', waitingRooms[roomId]);
       socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
