@@ -14,6 +14,108 @@ const roomTurns = {}; // Lưu userId người được quyền giải (turn) cho
 // Quản lý phòng chờ 2vs2
 const waitingRooms = {}; // { roomId: { players: [], roomCreator: '', gameStarted: false } }
 
+// Hàm sắp xếp lại chỗ ngồi thông minh
+function reorganizeSeating(room) {
+  console.log('=== REORGANIZING SEATING ===');
+  console.log('Players before reorganization:', room.players.map(p => ({ name: p.name, role: p.role, team: p.team, position: p.position })));
+  
+  const players = room.players;
+  const totalPlayers = players.length;
+  
+  // Reset tất cả positions và teams
+  players.forEach(player => {
+    if (player.role !== 'observer') {
+      player.team = null;
+      player.position = null;
+    }
+  });
+  
+  // Sắp xếp lại theo thứ tự ưu tiên
+  if (totalPlayers === 1) {
+    // Chỉ có 1 người = chủ phòng
+    const player = players[0];
+    player.role = 'creator';
+    player.team = 'team1';
+    player.position = 1;
+    console.log('Single player - assigned as CREATOR');
+  } else if (totalPlayers === 2) {
+    // 2 người = chủ phòng + 1 người chơi
+    const [creator, player] = players;
+    creator.role = 'creator';
+    creator.team = 'team1';
+    creator.position = 1;
+    
+    player.role = 'player';
+    player.team = 'team1';
+    player.position = 2;
+    console.log('Two players - creator + player in team1');
+  } else if (totalPlayers === 3) {
+    // 3 người = chủ phòng + 2 người chơi
+    const [creator, player1, player2] = players;
+    creator.role = 'creator';
+    creator.team = 'team1';
+    creator.position = 1;
+    
+    player1.role = 'player';
+    player1.team = 'team1';
+    player1.position = 2;
+    
+    player2.role = 'player';
+    player2.team = 'team2';
+    player2.position = 1;
+    console.log('Three players - creator + player1 in team1, player2 in team2');
+  } else if (totalPlayers === 4) {
+    // 4 người = chủ phòng + 3 người chơi
+    const [creator, player1, player2, player3] = players;
+    creator.role = 'creator';
+    creator.team = 'team1';
+    creator.position = 1;
+    
+    player1.role = 'player';
+    player1.team = 'team1';
+    player1.position = 2;
+    
+    player2.role = 'player';
+    player2.team = 'team2';
+    player2.position = 1;
+    
+    player3.role = 'player';
+    player3.team = 'team2';
+    player3.position = 2;
+    console.log('Four players - full teams');
+  } else {
+    // 5+ người = chủ phòng + 3 người chơi + observers
+    const [creator, player1, player2, player3, ...observers] = players;
+    
+    creator.role = 'creator';
+    creator.team = 'team1';
+    creator.position = 1;
+    
+    player1.role = 'player';
+    player1.team = 'team1';
+    player1.position = 2;
+    
+    player2.role = 'player';
+    player2.team = 'team2';
+    player2.position = 1;
+    
+    player3.role = 'player';
+    player3.team = 'team2';
+    player3.position = 2;
+    
+    // Tất cả người còn lại là observers
+    observers.forEach(observer => {
+      observer.role = 'observer';
+      observer.team = null;
+      observer.position = null;
+      observer.isObserver = true;
+    });
+    console.log(`Five+ players - full teams + ${observers.length} observers`);
+  }
+  
+  console.log('Players after reorganization:', room.players.map(p => ({ name: p.name, role: p.role, team: p.team, position: p.position })));
+}
+
 // Xóa user khỏi phòng và dọn dẹp nếu phòng trống
 function removeUserAndCleanup(room, userId) {
   if (!room || !rooms[room]) return;
@@ -672,56 +774,12 @@ socket.on("rematch-accepted", ({ roomId }) => {
       console.log('newPlayer.userName:', newPlayer.userName);
       console.log('Full newPlayer object:', JSON.stringify(newPlayer, null, 2));
       
-      // Logic phân vai trò và xếp chỗ
-      const totalPlayers = waitingRooms[roomId].players.length;
-      
-      console.log('=== ASSIGNING ROLE, TEAM AND POSITION ===');
-      console.log('Total players before adding new player:', totalPlayers);
-      
-      if (totalPlayers === 0) {
-        // Người đầu tiên = Chủ phòng
-        newPlayer.role = 'creator';
-        newPlayer.team = 'team1';
-        newPlayer.position = 1;
-        console.log('Assigned as CREATOR - Team 1, Position 1');
-      } else if (totalPlayers === 1) {
-        // Người thứ 2 = Người chơi
-        newPlayer.role = 'player';
-        newPlayer.team = 'team1';
-        newPlayer.position = 2;
-        console.log('Assigned as PLAYER - Team 1, Position 2');
-      } else if (totalPlayers === 2) {
-        // Người thứ 3 = Người chơi
-        newPlayer.role = 'player';
-        newPlayer.team = 'team2';
-        newPlayer.position = 1;
-        console.log('Assigned as PLAYER - Team 2, Position 1');
-      } else if (totalPlayers === 3) {
-        // Người thứ 4 = Người chơi
-        newPlayer.role = 'player';
-        newPlayer.team = 'team2';
-        newPlayer.position = 2;
-        console.log('Assigned as PLAYER - Team 2, Position 2');
-      } else {
-        // Từ người thứ 5 trở đi = Người xem
-        newPlayer.role = 'observer';
-        newPlayer.team = null;
-        newPlayer.position = null;
-        newPlayer.isObserver = true;
-        console.log('Assigned as OBSERVER (5th+ player)');
-      }
-      
-      console.log('Final player assignment:', {
-        id: newPlayer.id,
-        name: newPlayer.name,
-        role: newPlayer.role,
-        team: newPlayer.team,
-        position: newPlayer.position,
-        isObserver: newPlayer.isObserver
-      });
-      
+      // Thêm player mới vào danh sách
       waitingRooms[roomId].players.push(newPlayer);
       console.log('Added new player:', newPlayer);
+      
+      // Sử dụng thuật toán sắp xếp thông minh
+      reorganizeSeating(waitingRooms[roomId]);
     }
     
     console.log('=== WAITING ROOM STATE ===');
@@ -831,33 +889,14 @@ socket.on("rematch-accepted", ({ roomId }) => {
         return;
       }
       
+      // Toggle observer status
       player.isObserver = !player.isObserver;
+      player.isReady = false;
       
-      if (player.isObserver) {
-        // Chuyển thành observer
-        player.role = 'observer';
-        player.team = null;
-        player.position = null;
-        player.isReady = false;
-        console.log(`User ${userId} switched to OBSERVER role`);
-      } else {
-        // Chuyển thành player
-        player.role = 'player';
-        player.isReady = false;
-        
-        // Auto assign team khi bỏ observer
-        const team1Count = waitingRooms[roomId].players.filter(p => p.team === 'team1' && !p.isObserver).length;
-        const team2Count = waitingRooms[roomId].players.filter(p => p.team === 'team2' && !p.isObserver).length;
-        
-        if (team1Count < 2) {
-          player.team = 'team1';
-          player.position = team1Count + 1;
-        } else if (team2Count < 2) {
-          player.team = 'team2';
-          player.position = team2Count + 1;
-        }
-        console.log(`User ${userId} switched to PLAYER role`);
-      }
+      // Sử dụng thuật toán sắp xếp thông minh
+      reorganizeSeating(waitingRooms[roomId]);
+      
+      console.log(`User ${userId} toggled observer status, room reorganized`);
       
       socket.emit('waiting-room-updated', waitingRooms[roomId]);
       socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
@@ -917,21 +956,37 @@ socket.on("rematch-accepted", ({ roomId }) => {
     
     if (!waitingRooms[roomId]) return;
     
+    // Lưu thông tin người rời để xử lý
+    const leavingPlayer = waitingRooms[roomId].players.find(p => p.id === userId);
+    const wasCreator = leavingPlayer?.role === 'creator';
+    
+    // Xóa người rời khỏi danh sách
     waitingRooms[roomId].players = waitingRooms[roomId].players.filter(p => p.id !== userId);
+    
+    // Nếu phòng trống, xóa phòng
+    if (waitingRooms[roomId].players.length === 0) {
+      delete waitingRooms[roomId];
+      console.log(`Waiting room ${roomId} deleted (empty)`);
+      io.emit("update-active-rooms");
+      return;
+    }
+    
+    // Nếu chủ phòng rời, chọn chủ phòng mới
+    if (wasCreator) {
+      const newCreator = waitingRooms[roomId].players[0]; // Chọn người đầu tiên làm chủ phòng mới
+      if (newCreator) {
+        newCreator.role = 'creator';
+        waitingRooms[roomId].roomCreator = newCreator.id;
+        console.log(`New creator assigned: ${newCreator.name} (${newCreator.id})`);
+      }
+    }
+    
+    // Sắp xếp lại chỗ ngồi thông minh
+    reorganizeSeating(waitingRooms[roomId]);
     
     socket.leave(`waiting-${roomId}`);
     socket.emit('waiting-room-updated', waitingRooms[roomId]);
     socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
-    
-    // Nếu phòng trống, xóa phòng
-    console.log(`Checking if waiting room ${roomId} is empty. Players count:`, waitingRooms[roomId].players.length);
-    if (waitingRooms[roomId].players.length === 0) {
-      delete waitingRooms[roomId];
-      console.log(`Waiting room ${roomId} deleted (empty)`);
-      // Emit update-active-rooms để thông báo phòng đã bị xóa
-      io.emit("update-active-rooms");
-      console.log('Emitted update-active-rooms after deleting empty waiting room');
-    }
     
     console.log(`User ${userId} left waiting room ${roomId}`);
   });
@@ -942,20 +997,34 @@ socket.on("rematch-accepted", ({ roomId }) => {
     Object.keys(waitingRooms).forEach(roomId => {
       const playerIndex = waitingRooms[roomId].players.findIndex(p => p.id === socket.userId);
       if (playerIndex !== -1) {
+        const leavingPlayer = waitingRooms[roomId].players[playerIndex];
+        const wasCreator = leavingPlayer?.role === 'creator';
+        
         waitingRooms[roomId].players.splice(playerIndex, 1);
         
-        // Broadcast update
-        socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
-        
-        // Xóa phòng nếu trống
-        console.log(`Checking if waiting room ${roomId} is empty on disconnect. Players count:`, waitingRooms[roomId].players.length);
+        // Nếu phòng trống, xóa phòng
         if (waitingRooms[roomId].players.length === 0) {
           delete waitingRooms[roomId];
           console.log(`Waiting room ${roomId} deleted on disconnect`);
-          // Emit update-active-rooms để thông báo phòng đã bị xóa
           io.emit("update-active-rooms");
-          console.log('Emitted update-active-rooms after deleting empty waiting room on disconnect');
+          return;
         }
+        
+        // Nếu chủ phòng disconnect, chọn chủ phòng mới
+        if (wasCreator) {
+          const newCreator = waitingRooms[roomId].players[0];
+          if (newCreator) {
+            newCreator.role = 'creator';
+            waitingRooms[roomId].roomCreator = newCreator.id;
+            console.log(`New creator assigned on disconnect: ${newCreator.name} (${newCreator.id})`);
+          }
+        }
+        
+        // Sắp xếp lại chỗ ngồi thông minh
+        reorganizeSeating(waitingRooms[roomId]);
+        
+        // Broadcast update
+        socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
       }
     });
   });
