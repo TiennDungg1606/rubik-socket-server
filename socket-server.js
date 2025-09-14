@@ -526,11 +526,11 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
     
     // Kiểm tra xem có phải waiting room không
     if (waitingRooms[room]) {
-      // Gửi tin nhắn cho tất cả user trong waiting room
-      io.to(`waiting-${room}`).emit("chat", { userId, userName, message });
+      // Gửi tin nhắn cho tất cả user khác trong waiting room (không gửi cho chính người gửi)
+      socket.to(`waiting-${room}`).emit("chat", { userId, userName, message });
     } else {
-      // Gửi tin nhắn cho tất cả user trong phòng thường
-      io.to(room).emit("chat", { userId, userName, message });
+      // Gửi tin nhắn cho tất cả user khác trong phòng thường (không gửi cho chính người gửi)
+      socket.to(room).emit("chat", { userId, userName, message });
     }
   });
 
@@ -734,7 +734,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
   
   // Join waiting room
   socket.on('join-waiting-room', (data) => {
-    const { roomId, userId, userName } = data;
+    const { roomId, userId, userName, displayName, password } = data;
 
     
     if (!waitingRooms[roomId]) {
@@ -743,7 +743,9 @@ socket.on("rematch-accepted", ({ roomId }) => {
         players: [],
         roomCreator: userId, // Người đầu tiên join sẽ là chủ phòng
         gameStarted: false,
-        createdAt: Date.now() // Thêm timestamp để track thời gian tạo
+        createdAt: Date.now(), // Thêm timestamp để track thời gian tạo
+        displayName: displayName || roomId, // Tên phòng hiển thị
+        password: password || null // Mật khẩu phòng
       };
       
       // Set timeout xóa phòng sau 5 phút không bắt đầu
