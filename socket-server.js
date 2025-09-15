@@ -300,7 +300,8 @@ const server = http.createServer((req, res) => {
       meta: { 
         gameMode: '2vs2',
         event: '3x3', // default event
-        displayName: `Waiting ${roomId}`,
+        displayName: waitingRooms[roomId].displayName || roomId,
+        password: waitingRooms[roomId].password || null,
         isWaitingRoom: true
       },
       usersCount: waitingRooms[roomId].players.length,
