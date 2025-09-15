@@ -978,5 +978,61 @@ socket.on("rematch-accepted", ({ roomId }) => {
         socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
       }
     });
+
+    // Swap seat handlers
+    socket.on('swap-seat-request', (data) => {
+      const { roomId, fromUserId, toUserId, fromPosition, toPosition } = data;
+      
+      if (!waitingRooms[roomId]) return;
+      
+      const fromPlayer = waitingRooms[roomId].players.find(p => p.id === fromUserId);
+      const toPlayer = waitingRooms[roomId].players.find(p => p.id === toUserId);
+      
+      if (!fromPlayer || !toPlayer) return;
+      
+      // Gửi yêu cầu đến người được yêu cầu đổi chỗ
+      socket.to(`waiting-${roomId}`).emit('swap-seat-request', {
+        fromPlayer,
+        toPlayer,
+        fromPosition,
+        toPosition
+      });
+    });
+
+    socket.on('swap-seat-response', (data) => {
+      const { roomId, accepted, fromUserId, toUserId, fromPosition, toPosition } = data;
+      
+      if (!waitingRooms[roomId]) return;
+      
+      if (accepted) {
+        // Thực hiện đổi chỗ
+        const fromPlayer = waitingRooms[roomId].players.find(p => p.id === fromUserId);
+        const toPlayer = waitingRooms[roomId].players.find(p => p.id === toUserId);
+        
+        if (fromPlayer && toPlayer) {
+          // Đổi position
+          const tempPosition = fromPlayer.position;
+          fromPlayer.position = toPlayer.position;
+          toPlayer.position = tempPosition;
+          
+          // Đổi team nếu cần
+          const tempTeam = fromPlayer.team;
+          fromPlayer.team = toPlayer.team;
+          toPlayer.team = tempTeam;
+          
+          // Broadcast update cho tất cả trong phòng
+          io.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
+        }
+      }
+      
+      // Gửi phản hồi cho người yêu cầu
+      socket.to(`waiting-${roomId}`).emit('swap-seat-response', {
+        accepted,
+        fromPlayer: waitingRooms[roomId].players.find(p => p.id === fromUserId),
+        toPlayer: waitingRooms[roomId].players.find(p => p.id === toUserId),
+        fromPosition,
+        toPosition
+      });
+    });
   });
 });
