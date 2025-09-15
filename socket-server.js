@@ -978,9 +978,10 @@ socket.on("rematch-accepted", ({ roomId }) => {
         socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
       }
     });
+  });
 
-    // Swap seat handlers
-    socket.on('swap-seat-request', (data) => {
+  // Swap seat handlers - moved outside of leave-waiting-room handler
+  socket.on('swap-seat-request', (data) => {
       const { roomId, fromUserId, toUserId, fromPosition, toPosition } = data;
       
       console.log('Server received swap-seat-request:', data);
@@ -1053,5 +1054,4 @@ socket.on("rematch-accepted", ({ roomId }) => {
         toPosition
       });
     });
-  });
 });
