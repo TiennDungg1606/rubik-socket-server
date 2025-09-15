@@ -768,7 +768,6 @@ socket.on("rematch-accepted", ({ roomId }) => {
           io.emit("update-active-rooms");
         }
       }, 5 * 60 * 1000); // 5 phút
-    }
     
     // Kiểm tra xem user đã có trong phòng chưa
     const existingPlayerIndex = waitingRooms[roomId].players.findIndex(p => p.id === userId);
