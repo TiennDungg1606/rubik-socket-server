@@ -255,7 +255,7 @@ const server = http.createServer((req, res) => {
     });
     req.on('end', () => {
       try {
-        const { roomId, gameMode, event, displayName } = JSON.parse(body);
+        const { roomId, gameMode, event, displayName, password } = JSON.parse(body);
  
         
         // Tạo waiting room nếu chưa tồn tại
@@ -266,7 +266,7 @@ const server = http.createServer((req, res) => {
             roomCreator: null, // Sẽ được set khi user đầu tiên join
             gameStarted: false,
             displayName: displayName || roomId, // Lưu tên phòng
-            password: null // Mật khẩu sẽ được set khi user join
+            password: password || null // Lưu mật khẩu
           };
 
           
