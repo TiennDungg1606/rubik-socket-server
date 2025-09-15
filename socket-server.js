@@ -983,20 +983,39 @@ socket.on("rematch-accepted", ({ roomId }) => {
     socket.on('swap-seat-request', (data) => {
       const { roomId, fromUserId, toUserId, fromPosition, toPosition } = data;
       
-      if (!waitingRooms[roomId]) return;
+      console.log('Server received swap-seat-request:', data);
+      
+      if (!waitingRooms[roomId]) {
+        console.log('Room not found:', roomId);
+        return;
+      }
       
       const fromPlayer = waitingRooms[roomId].players.find(p => p.id === fromUserId);
       const toPlayer = waitingRooms[roomId].players.find(p => p.id === toUserId);
       
+      console.log('Players found:', { fromPlayer, toPlayer });
+      
       if (!fromPlayer || !toPlayer) return;
       
       // Gửi yêu cầu đến người được yêu cầu đổi chỗ
-      socket.to(`waiting-${roomId}`).emit('swap-seat-request', {
-        fromPlayer,
-        toPlayer,
-        fromPosition,
-        toPosition
-      });
+      console.log('Sending swap-seat-request to room:', `waiting-${roomId}`);
+      
+      // Tìm socket của người được yêu cầu đổi chỗ
+      const targetSocket = Array.from(io.sockets.sockets.values()).find(s => 
+        s.userId === toUserId && s.rooms.has(`waiting-${roomId}`)
+      );
+      
+      if (targetSocket) {
+        console.log('Found target socket, sending request');
+        targetSocket.emit('swap-seat-request', {
+          fromPlayer,
+          toPlayer,
+          fromPosition,
+          toPosition
+        });
+      } else {
+        console.log('Target socket not found');
+      }
     });
 
     socket.on('swap-seat-response', (data) => {
