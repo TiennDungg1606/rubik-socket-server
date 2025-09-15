@@ -750,6 +750,15 @@ socket.on("rematch-accepted", ({ roomId }) => {
         displayName: displayName || roomId, // Tên phòng hiển thị
         password: password || null // Mật khẩu phòng
       };
+    } else {
+      // Cập nhật displayName và password nếu có
+      if (displayName) {
+        waitingRooms[roomId].displayName = displayName;
+      }
+      if (password) {
+        waitingRooms[roomId].password = password;
+      }
+    }
       
       // Set timeout xóa phòng sau 5 phút không bắt đầu
       setTimeout(() => {
