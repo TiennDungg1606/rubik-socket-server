@@ -264,7 +264,9 @@ const server = http.createServer((req, res) => {
             roomId,
             players: [],
             roomCreator: null, // Sẽ được set khi user đầu tiên join
-            gameStarted: false
+            gameStarted: false,
+            displayName: displayName || roomId, // Lưu tên phòng
+            password: null // Mật khẩu sẽ được set khi user join
           };
 
           
