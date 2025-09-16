@@ -980,71 +980,75 @@ socket.on("rematch-accepted", ({ roomId }) => {
     });
   });
 
-  // Swap seat handlers - moved outside of leave-waiting-room handler
+  // Swap seat handlers - đơn giản như chat
   socket.on('swap-seat-request', (data) => {
-      const { roomId, fromUserId, toUserId, fromPosition, toPosition } = data;
-      
-      console.log('Server received swap-seat-request:', data);
-      
-      if (!waitingRooms[roomId]) {
-        console.log('Room not found:', roomId);
-        return;
-      }
-      
+    const { roomId, fromUserId, toUserId, fromPosition, toPosition } = data;
+    
+    console.log('Server received swap-seat-request:', data);
+    
+    if (!waitingRooms[roomId]) {
+      console.log('Room not found:', roomId);
+      return;
+    }
+    
+    const fromPlayer = waitingRooms[roomId].players.find(p => p.id === fromUserId);
+    const toPlayer = waitingRooms[roomId].players.find(p => p.id === toUserId);
+    
+    if (!fromPlayer || !toPlayer) {
+      console.log('Players not found');
+      return;
+    }
+    
+    // Broadcast đến tất cả user trong room (như chat)
+    console.log('Broadcasting swap-seat-request to room:', `waiting-${roomId}`);
+    io.to(`waiting-${roomId}`).emit('swap-seat-request', {
+      fromPlayer,
+      toPlayer,
+      fromPosition,
+      toPosition,
+      targetUserId: toUserId
+    });
+  });
+
+  socket.on('swap-seat-response', (data) => {
+    const { roomId, accepted, fromUserId, toUserId, fromPosition, toPosition } = data;
+    
+    console.log('Server received swap-seat-response:', data);
+    
+    if (!waitingRooms[roomId]) return;
+    
+    if (accepted) {
+      // Thực hiện đổi chỗ
       const fromPlayer = waitingRooms[roomId].players.find(p => p.id === fromUserId);
       const toPlayer = waitingRooms[roomId].players.find(p => p.id === toUserId);
       
-      console.log('Players found:', { fromPlayer, toPlayer });
-      
-      if (!fromPlayer || !toPlayer) return;
-      
-      // Gửi yêu cầu đến người được yêu cầu đổi chỗ
-      console.log('Sending swap-seat-request to room:', `waiting-${roomId}`);
-      
-      // Gửi request đến tất cả user trong room, để client tự kiểm tra
-      console.log('Broadcasting swap-seat-request to all users in room:', `waiting-${roomId}`);
-      io.to(`waiting-${roomId}`).emit('swap-seat-request', {
-        fromPlayer,
-        toPlayer,
-        fromPosition,
-        toPosition,
-        targetUserId: toUserId // Thêm targetUserId để client dễ kiểm tra
-      });
-    });
-
-    socket.on('swap-seat-response', (data) => {
-      const { roomId, accepted, fromUserId, toUserId, fromPosition, toPosition } = data;
-      
-      if (!waitingRooms[roomId]) return;
-      
-      if (accepted) {
-        // Thực hiện đổi chỗ
-        const fromPlayer = waitingRooms[roomId].players.find(p => p.id === fromUserId);
-        const toPlayer = waitingRooms[roomId].players.find(p => p.id === toUserId);
+      if (fromPlayer && toPlayer) {
+        // Đổi position
+        const tempPosition = fromPlayer.position;
+        fromPlayer.position = toPlayer.position;
+        toPlayer.position = tempPosition;
         
-        if (fromPlayer && toPlayer) {
-          // Đổi position
-          const tempPosition = fromPlayer.position;
-          fromPlayer.position = toPlayer.position;
-          toPlayer.position = tempPosition;
-          
-          // Đổi team nếu cần
-          const tempTeam = fromPlayer.team;
-          fromPlayer.team = toPlayer.team;
-          toPlayer.team = tempTeam;
-          
-          // Broadcast update cho tất cả trong phòng
-          io.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
-        }
+        // Đổi team nếu cần
+        const tempTeam = fromPlayer.team;
+        fromPlayer.team = toPlayer.team;
+        toPlayer.team = tempTeam;
+        
+        console.log('Seats swapped successfully');
       }
-      
-      // Gửi phản hồi cho người yêu cầu
-      socket.to(`waiting-${roomId}`).emit('swap-seat-response', {
-        accepted,
-        fromPlayer: waitingRooms[roomId].players.find(p => p.id === fromUserId),
-        toPlayer: waitingRooms[roomId].players.find(p => p.id === toUserId),
-        fromPosition,
-        toPosition
-      });
+    }
+    
+    // Broadcast phản hồi đến tất cả user trong room (như chat)
+    console.log('Broadcasting swap-seat-response to room:', `waiting-${roomId}`);
+    io.to(`waiting-${roomId}`).emit('swap-seat-response', {
+      accepted,
+      fromUserId,
+      toUserId,
+      fromPosition,
+      toPosition,
+      targetUserId: fromUserId // Người yêu cầu cần nhận phản hồi
     });
+    
+    // Broadcast update room state
+    io.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
+  });
 });
