@@ -1001,22 +1001,15 @@ socket.on("rematch-accepted", ({ roomId }) => {
       // Gửi yêu cầu đến người được yêu cầu đổi chỗ
       console.log('Sending swap-seat-request to room:', `waiting-${roomId}`);
       
-      // Tìm socket của người được yêu cầu đổi chỗ
-      const targetSocket = Array.from(io.sockets.sockets.values()).find(s => 
-        s.userId === toUserId && s.rooms.has(`waiting-${roomId}`)
-      );
-      
-      if (targetSocket) {
-        console.log('Found target socket, sending request');
-        targetSocket.emit('swap-seat-request', {
-          fromPlayer,
-          toPlayer,
-          fromPosition,
-          toPosition
-        });
-      } else {
-        console.log('Target socket not found');
-      }
+      // Gửi request đến tất cả user trong room, để client tự kiểm tra
+      console.log('Broadcasting swap-seat-request to all users in room:', `waiting-${roomId}`);
+      io.to(`waiting-${roomId}`).emit('swap-seat-request', {
+        fromPlayer,
+        toPlayer,
+        fromPosition,
+        toPosition,
+        targetUserId: toUserId // Thêm targetUserId để client dễ kiểm tra
+      });
     });
 
     socket.on('swap-seat-response', (data) => {
