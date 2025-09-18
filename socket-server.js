@@ -14,6 +14,13 @@ const roomTurns = {}; // Lưu userId người được quyền giải (turn) cho
 // Quản lý phòng chờ 2vs2
 const waitingRooms = {}; // { roomId: { players: [], roomCreator: '', gameStarted: false } }
 
+// Quản lý phòng game 2vs2 (tách biệt với 1vs1)
+const gameRooms2vs2 = {}; // Quản lý người chơi trong từng room 2vs2
+const scrambles2vs2 = {}; // Quản lý scramble cho từng room 2vs2
+const roomsMeta2vs2 = {}; // Quản lý meta phòng 2vs2: event, displayName, password
+const roomHosts2vs2 = {}; // Lưu userId chủ phòng cho từng room 2vs2
+const roomTurns2vs2 = {}; // Lưu userId người được quyền giải (turn) cho từng room 2vs2
+
 // Hàm sắp xếp lại chỗ ngồi thông minh
 function reorganizeSeating(room) {
 
@@ -214,6 +221,493 @@ function generateLocalScrambles(event = "3x3") {
   return localScrambles;
 }
 
+// Hàm xử lý join room cho 1vs1 (logic cũ)
+function handleJoin1vs1GameRoom(socket, room, userId, userName, event, displayName, password) {
+  socket.join(room);
+  socket.data = socket.data || {};
+  socket.data.room = room;
+  socket.data.userName = userName;
+  socket.data.userId = userId;
+  socket.data.gameMode = '1vs1';
+
+  if (!rooms[room]) rooms[room] = [];
+  let isNewRoom = false;
+  if (rooms[room].length === 0) {
+    roomsMeta[room] = {
+      event: event || "3x3",
+      displayName: displayName || room,
+      password: password || ""
+    };
+    isNewRoom = true;
+    // Gán host là userId đầu tiên
+    roomHosts[room] = userId;
+    // Gán lượt chơi ban đầu là host
+    roomTurns[room] = userId;
+  } else {
+    const roomPassword = roomsMeta[room]?.password || "";
+    if (roomPassword && password !== roomPassword) {
+      socket.emit("wrong-password", { message: "Sai mật khẩu phòng!" });
+      return;
+    }
+  }
+  if (rooms[room].length >= 2) {
+    socket.emit("room-full", { message: "Phòng đã đủ 2 người chơi" });
+    return;
+  }
+
+  if (!rooms[room].some(u => u.userId === userId)) {
+    rooms[room].push({ userId, userName });
+  }
+
+  // Kiểm tra và dọn dẹp phòng nếu trống (sau khi join/leave)
+  removeUserAndCleanup(room, undefined); // undefined để không xóa ai, chỉ kiểm tra phòng trống
+
+  // Broadcast danh sách user, host và turn
+  io.to(room).emit("room-users", { users: rooms[room], hostId: roomHosts[room] });
+  io.to(room).emit("room-turn", { turnUserId: roomTurns[room] });
+  if (isNewRoom) {
+    io.emit("update-active-rooms");
+  }
+  console.log("All 1vs1 rooms:", JSON.stringify(rooms));
+
+  if (!scrambles[room]) {
+    scrambles[room] = [];
+    const eventType = roomsMeta[room]?.event || "3x3";
+    const scrambleList = generateLocalScrambles(eventType);
+    scrambles[room] = scrambleList;
+    if (scrambles[room] && scrambles[room].length > 0) {
+      io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
+    }
+  }
+  if (scrambles[room] && scrambles[room].length > 0) {
+    io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
+  }
+
+  if (rooms[room].length === 1) {
+    // Khi chỉ còn 1 người, luôn set turn về cho host
+    roomTurns[room] = roomHosts[room];
+    io.to(room).emit("room-turn", { turnUserId: roomTurns[room] });
+    if (global.roomTimeouts[room]) {
+      clearTimeout(global.roomTimeouts[room]);
+    }
+    global.roomTimeouts[room] = setTimeout(() => {
+      if (rooms[room] && rooms[room].length === 1) {
+        console.log(`⏰ Phòng 1vs1 ${room} chỉ có 1 người chơi sau 5 phút, tự động xóa.`);
+        delete rooms[room];
+        delete scrambles[room];
+        if (socket.server.solveCount) delete socket.server.solveCount[room];
+        delete global.roomTimeouts[room];
+        delete roomHosts[room];
+        delete roomsMeta[room]; // Xóa meta khi phòng trống
+        io.to(room).emit("room-users", { users: [], hostId: null });
+      }
+    }, 5 * 60 * 1000);
+  } else {
+    if (global.roomTimeouts[room]) {
+      clearTimeout(global.roomTimeouts[room]);
+      delete global.roomTimeouts[room];
+      console.log(`❌ Hủy timeout tự hủy phòng 1vs1 ${room} vì đã có thêm người chơi.`);
+    }
+    if (rooms[room].length === 2) {
+      if (socket.server.solveCount) socket.server.solveCount[room] = 0;
+      const eventType = roomsMeta[room]?.event || "3x3";
+      scrambles[room] = generateLocalScrambles(eventType);
+      io.to(room).emit("room-reset");
+      if (scrambles[room] && scrambles[room].length > 0) {
+        io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
+      }
+      // Khi đủ 2 người, set turn về cho host
+      roomTurns[room] = roomHosts[room];
+      io.to(room).emit("room-turn", { turnUserId: roomTurns[room] });
+    }
+  }
+  socket.emit("room-joined");
+}
+
+// Hàm xử lý join room cho 2vs2 (logic mới)
+function handleJoin2vs2GameRoom(socket, room, userId, userName, event, displayName, password) {
+  socket.join(room);
+  socket.data = socket.data || {};
+  socket.data.room = room;
+  socket.data.userName = userName;
+  socket.data.userId = userId;
+  socket.data.gameMode = '2vs2';
+
+  if (!gameRooms2vs2[room]) gameRooms2vs2[room] = [];
+  let isNewRoom = false;
+  if (gameRooms2vs2[room].length === 0) {
+    roomsMeta2vs2[room] = {
+      event: event || "3x3",
+      displayName: displayName || room,
+      password: password || ""
+    };
+    isNewRoom = true;
+    // Gán host là userId đầu tiên
+    roomHosts2vs2[room] = userId;
+    // Gán lượt chơi ban đầu là host
+    roomTurns2vs2[room] = userId;
+  } else {
+    const roomPassword = roomsMeta2vs2[room]?.password || "";
+    if (roomPassword && password !== roomPassword) {
+      socket.emit("wrong-password", { message: "Sai mật khẩu phòng!" });
+      return;
+    }
+  }
+  if (gameRooms2vs2[room].length >= 4) {
+    socket.emit("room-full", { message: "Phòng 2vs2 đã đủ 4 người chơi" });
+    return;
+  }
+
+  if (!gameRooms2vs2[room].some(u => u.userId === userId)) {
+    gameRooms2vs2[room].push({ userId, userName });
+  }
+
+  // Broadcast danh sách user, host và turn cho 2vs2
+  io.to(room).emit("room-users", { users: gameRooms2vs2[room], hostId: roomHosts2vs2[room] });
+  io.to(room).emit("room-turn", { turnUserId: roomTurns2vs2[room] });
+  if (isNewRoom) {
+    io.emit("update-active-rooms");
+  }
+  console.log("All 2vs2 rooms:", JSON.stringify(gameRooms2vs2));
+
+  if (!scrambles2vs2[room]) {
+    scrambles2vs2[room] = [];
+    const eventType = roomsMeta2vs2[room]?.event || "3x3";
+    const scrambleList = generateLocalScrambles(eventType);
+    scrambles2vs2[room] = scrambleList;
+    if (scrambles2vs2[room] && scrambles2vs2[room].length > 0) {
+      io.to(room).emit("scramble", { scramble: scrambles2vs2[room][0], index: 0 });
+    }
+  }
+  if (scrambles2vs2[room] && scrambles2vs2[room].length > 0) {
+    io.to(room).emit("scramble", { scramble: scrambles2vs2[room][0], index: 0 });
+  }
+
+  if (gameRooms2vs2[room].length === 1) {
+    // Khi chỉ còn 1 người, luôn set turn về cho host
+    roomTurns2vs2[room] = roomHosts2vs2[room];
+    io.to(room).emit("room-turn", { turnUserId: roomTurns2vs2[room] });
+    if (global.roomTimeouts[room]) {
+      clearTimeout(global.roomTimeouts[room]);
+    }
+    global.roomTimeouts[room] = setTimeout(() => {
+      if (gameRooms2vs2[room] && gameRooms2vs2[room].length === 1) {
+        console.log(`⏰ Phòng 2vs2 ${room} chỉ có 1 người chơi sau 5 phút, tự động xóa.`);
+        delete gameRooms2vs2[room];
+        delete scrambles2vs2[room];
+        if (socket.server.solveCount) delete socket.server.solveCount[room];
+        delete global.roomTimeouts[room];
+        delete roomHosts2vs2[room];
+        delete roomsMeta2vs2[room]; // Xóa meta khi phòng trống
+        io.to(room).emit("room-users", { users: [], hostId: null });
+      }
+    }, 5 * 60 * 1000);
+  } else {
+    if (global.roomTimeouts[room]) {
+      clearTimeout(global.roomTimeouts[room]);
+      delete global.roomTimeouts[room];
+      console.log(`❌ Hủy timeout tự hủy phòng 2vs2 ${room} vì đã có thêm người chơi.`);
+    }
+    if (gameRooms2vs2[room].length >= 2) {
+      if (socket.server.solveCount) socket.server.solveCount[room] = 0;
+      const eventType = roomsMeta2vs2[room]?.event || "3x3";
+      scrambles2vs2[room] = generateLocalScrambles(eventType);
+      io.to(room).emit("room-reset");
+      if (scrambles2vs2[room] && scrambles2vs2[room].length > 0) {
+        io.to(room).emit("scramble", { scramble: scrambles2vs2[room][0], index: 0 });
+      }
+      // Khi đủ người, set turn về cho host
+      roomTurns2vs2[room] = roomHosts2vs2[room];
+      io.to(room).emit("room-turn", { turnUserId: roomTurns2vs2[room] });
+    }
+  }
+  socket.emit("room-joined");
+}
+
+// Hàm xử lý solve cho 1vs1 (logic cũ)
+function handleSolve1vs1(room, userId, userName, time) {
+  // Quản lý lượt giải để gửi scramble tiếp theo
+  if (!socket.server.solveCount) socket.server.solveCount = {};
+  if (!socket.server.solveCount[room]) socket.server.solveCount[room] = 0;
+  socket.server.solveCount[room]++;
+  // Khi tổng số lượt giải là số chẵn (2,4,6,8,10) thì gửi scramble tiếp theo
+  const totalSolves = socket.server.solveCount[room];
+  if (totalSolves % 2 === 0) {
+    const idx = totalSolves / 2;
+    if (scrambles[room] && scrambles[room][idx]) {
+      io.to(room).emit("scramble", { scramble: scrambles[room][idx], index: idx });
+    }
+  }
+  // Đổi lượt chơi cho người còn lại
+  if (rooms[room] && rooms[room].length === 2) {
+    const userIds = rooms[room].map(u => u.userId);
+    // Chuyển lượt cho người còn lại
+    const nextTurn = userIds.find(id => id !== userId);
+    if (nextTurn) {
+      roomTurns[room] = nextTurn;
+      io.to(room).emit("room-turn", { turnUserId: nextTurn });
+    }
+  }
+}
+
+// Hàm xử lý solve cho 2vs2 (logic mới)
+function handleSolve2vs2(room, userId, userName, time) {
+  // Quản lý lượt giải để gửi scramble tiếp theo cho 2vs2
+  if (!socket.server.solveCount) socket.server.solveCount = {};
+  if (!socket.server.solveCount[room]) socket.server.solveCount[room] = 0;
+  socket.server.solveCount[room]++;
+  
+  // Logic 2vs2: có thể có nhiều người chơi hơn, cần logic khác
+  const totalSolves = socket.server.solveCount[room];
+  if (totalSolves % 2 === 0) {
+    const idx = totalSolves / 2;
+    if (scrambles2vs2[room] && scrambles2vs2[room][idx]) {
+      io.to(room).emit("scramble", { scramble: scrambles2vs2[room][idx], index: idx });
+    }
+  }
+  
+  // Đổi lượt chơi cho người tiếp theo trong 2vs2
+  if (gameRooms2vs2[room] && gameRooms2vs2[room].length >= 2) {
+    const userIds = gameRooms2vs2[room].map(u => u.userId);
+    // Chuyển lượt cho người tiếp theo (có thể là teammate hoặc opponent)
+    const currentIndex = userIds.indexOf(userId);
+    const nextIndex = (currentIndex + 1) % userIds.length;
+    const nextTurn = userIds[nextIndex];
+    if (nextTurn) {
+      roomTurns2vs2[room] = nextTurn;
+      io.to(room).emit("room-turn", { turnUserId: nextTurn });
+    }
+  }
+}
+
+// Hàm xử lý disconnect cho 1vs1 (logic cũ)
+function handleDisconnect1vs1(room, userId) {
+  if (rooms[room]) {
+    rooms[room] = rooms[room].filter(u => u && u.userId !== userId && u.userId !== "");
+    // Nếu host rời phòng, chọn người còn lại làm host mới
+    if (roomHosts[room] === userId) {
+      if (rooms[room].length > 0) {
+        roomHosts[room] = rooms[room][0].userId;
+      } else {
+        delete roomHosts[room];
+      }
+    }
+    // Nếu turnUserId rời phòng, chuyển lượt cho người còn lại (nếu còn)
+    if (roomTurns[room] === userId) {
+      if (rooms[room].length > 0) {
+        roomTurns[room] = rooms[room][0].userId;
+      } else {
+        delete roomTurns[room];
+      }
+    }
+    io.to(room).emit("room-users", { users: rooms[room], hostId: roomHosts[room] || null });
+    io.to(room).emit("room-turn", { turnUserId: roomTurns[room] || null });
+    
+    const filteredUsers = rooms[room].filter(u => u);
+    if (filteredUsers.length === 0) {
+      delete rooms[room];
+      delete scrambles[room];
+      if (socket.server.solveCount) delete socket.server.solveCount[room];
+      if (global.roomTimeouts && global.roomTimeouts[room]) {
+        clearTimeout(global.roomTimeouts[room]);
+        delete global.roomTimeouts[room];
+      }
+      delete roomHosts[room];
+      delete roomTurns[room];
+      delete roomsMeta[room]; // Xóa meta khi phòng trống
+      console.log(`Room 1vs1 ${room} deleted from rooms object (empty).`);
+    } else if (filteredUsers.length === 1) {
+      if (socket.server.solveCount) socket.server.solveCount[room] = 0;
+      const eventType = roomsMeta[room]?.event || "3x3";
+      scrambles[room] = generateLocalScrambles(eventType);
+      if (scrambles[room] && scrambles[room].length > 0) {
+        io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
+      }
+      io.to(room).emit("room-reset");
+      // Khi chỉ còn 1 người, set turn về cho host
+      if (rooms[room].length === 1) {
+        roomTurns[room] = roomHosts[room];
+        io.to(room).emit("room-turn", { turnUserId: roomTurns[room] });
+      }
+      if (global.roomTimeouts) {
+        if (global.roomTimeouts[room]) {
+          clearTimeout(global.roomTimeouts[room]);
+        }
+        global.roomTimeouts[room] = setTimeout(() => {
+          if (rooms[room] && rooms[room].length === 1) {
+            console.log(`⏰ Phòng 1vs1 ${room} chỉ còn 1 người chơi sau disconnect, tự động xóa sau 5 phút.`);
+            delete rooms[room];
+            delete scrambles[room];
+            if (socket.server.solveCount) delete socket.server.solveCount[room];
+            delete global.roomTimeouts[room];
+            delete roomHosts[room];
+            delete roomTurns[room];
+            io.to(room).emit("room-users", { users: [], hostId: null });
+            io.to(room).emit("room-turn", { turnUserId: null });
+          }
+        }, 5 * 60 * 1000);
+      }
+    } else {
+      if (global.roomTimeouts && global.roomTimeouts[room]) {
+        clearTimeout(global.roomTimeouts[room]);
+        delete global.roomTimeouts[room];
+      }
+    }
+  }
+}
+
+// Hàm xử lý disconnect cho 2vs2 (logic mới)
+function handleDisconnect2vs2(room, userId) {
+  if (gameRooms2vs2[room]) {
+    gameRooms2vs2[room] = gameRooms2vs2[room].filter(u => u && u.userId !== userId && u.userId !== "");
+    // Nếu host rời phòng, chọn người còn lại làm host mới
+    if (roomHosts2vs2[room] === userId) {
+      if (gameRooms2vs2[room].length > 0) {
+        roomHosts2vs2[room] = gameRooms2vs2[room][0].userId;
+      } else {
+        delete roomHosts2vs2[room];
+      }
+    }
+    // Nếu turnUserId rời phòng, chuyển lượt cho người còn lại (nếu còn)
+    if (roomTurns2vs2[room] === userId) {
+      if (gameRooms2vs2[room].length > 0) {
+        roomTurns2vs2[room] = gameRooms2vs2[room][0].userId;
+      } else {
+        delete roomTurns2vs2[room];
+      }
+    }
+    io.to(room).emit("room-users", { users: gameRooms2vs2[room], hostId: roomHosts2vs2[room] || null });
+    io.to(room).emit("room-turn", { turnUserId: roomTurns2vs2[room] || null });
+    
+    const filteredUsers = gameRooms2vs2[room].filter(u => u);
+    if (filteredUsers.length === 0) {
+      delete gameRooms2vs2[room];
+      delete scrambles2vs2[room];
+      if (socket.server.solveCount) delete socket.server.solveCount[room];
+      if (global.roomTimeouts && global.roomTimeouts[room]) {
+        clearTimeout(global.roomTimeouts[room]);
+        delete global.roomTimeouts[room];
+      }
+      delete roomHosts2vs2[room];
+      delete roomTurns2vs2[room];
+      delete roomsMeta2vs2[room]; // Xóa meta khi phòng trống
+      console.log(`Room 2vs2 ${room} deleted from gameRooms2vs2 object (empty).`);
+    } else if (filteredUsers.length === 1) {
+      if (socket.server.solveCount) socket.server.solveCount[room] = 0;
+      const eventType = roomsMeta2vs2[room]?.event || "3x3";
+      scrambles2vs2[room] = generateLocalScrambles(eventType);
+      if (scrambles2vs2[room] && scrambles2vs2[room].length > 0) {
+        io.to(room).emit("scramble", { scramble: scrambles2vs2[room][0], index: 0 });
+      }
+      io.to(room).emit("room-reset");
+      // Khi chỉ còn 1 người, set turn về cho host
+      if (gameRooms2vs2[room].length === 1) {
+        roomTurns2vs2[room] = roomHosts2vs2[room];
+        io.to(room).emit("room-turn", { turnUserId: roomTurns2vs2[room] });
+      }
+      if (global.roomTimeouts) {
+        if (global.roomTimeouts[room]) {
+          clearTimeout(global.roomTimeouts[room]);
+        }
+        global.roomTimeouts[room] = setTimeout(() => {
+          if (gameRooms2vs2[room] && gameRooms2vs2[room].length === 1) {
+            console.log(`⏰ Phòng 2vs2 ${room} chỉ còn 1 người chơi sau disconnect, tự động xóa sau 5 phút.`);
+            delete gameRooms2vs2[room];
+            delete scrambles2vs2[room];
+            if (socket.server.solveCount) delete socket.server.solveCount[room];
+            delete global.roomTimeouts[room];
+            delete roomHosts2vs2[room];
+            delete roomTurns2vs2[room];
+            io.to(room).emit("room-users", { users: [], hostId: null });
+            io.to(room).emit("room-turn", { turnUserId: null });
+          }
+        }, 5 * 60 * 1000);
+      }
+    } else {
+      if (global.roomTimeouts && global.roomTimeouts[room]) {
+        clearTimeout(global.roomTimeouts[room]);
+        delete global.roomTimeouts[room];
+      }
+    }
+  }
+}
+
+// Hàm xử lý leave room cho 2vs2 (logic mới)
+function handleLeaveRoom2vs2(room, userId) {
+  if (gameRooms2vs2[room]) {
+    gameRooms2vs2[room] = gameRooms2vs2[room].filter(u => u && u.userId !== userId && u.userId !== "");
+    // Nếu host rời phòng, chọn người còn lại làm host mới
+    if (roomHosts2vs2[room] === userId) {
+      if (gameRooms2vs2[room].length > 0) {
+        roomHosts2vs2[room] = gameRooms2vs2[room][0].userId;
+      } else {
+        delete roomHosts2vs2[room];
+      }
+    }
+    // Nếu turnUserId rời phòng, chuyển lượt cho người còn lại (nếu còn)
+    if (roomTurns2vs2[room] === userId) {
+      if (gameRooms2vs2[room].length > 0) {
+        roomTurns2vs2[room] = gameRooms2vs2[room][0].userId;
+      } else {
+        delete roomTurns2vs2[room];
+      }
+    }
+    io.to(room).emit("room-users", { users: gameRooms2vs2[room], hostId: roomHosts2vs2[room] || null });
+    io.to(room).emit("room-turn", { turnUserId: roomTurns2vs2[room] || null });
+    
+    const filteredUsers = gameRooms2vs2[room].filter(u => u);
+    if (filteredUsers.length === 0) {
+      delete gameRooms2vs2[room];
+      delete scrambles2vs2[room];
+      if (socket.server.solveCount) delete socket.server.solveCount[room];
+      if (global.roomTimeouts && global.roomTimeouts[room]) {
+        clearTimeout(global.roomTimeouts[room]);
+        delete global.roomTimeouts[room];
+      }
+      delete roomHosts2vs2[room];
+      delete roomTurns2vs2[room];
+      delete roomsMeta2vs2[room]; // Xóa meta khi phòng trống
+      console.log(`Room 2vs2 ${room} deleted from gameRooms2vs2 object (empty).`);
+    } else if (filteredUsers.length === 1) {
+      if (socket.server.solveCount) socket.server.solveCount[room] = 0;
+      const eventType = roomsMeta2vs2[room]?.event || "3x3";
+      scrambles2vs2[room] = generateLocalScrambles(eventType);
+      if (scrambles2vs2[room] && scrambles2vs2[room].length > 0) {
+        io.to(room).emit("scramble", { scramble: scrambles2vs2[room][0], index: 0 });
+      }
+      io.to(room).emit("room-reset");
+      // Khi chỉ còn 1 người, set turn về cho host
+      if (gameRooms2vs2[room].length === 1) {
+        roomTurns2vs2[room] = roomHosts2vs2[room];
+        io.to(room).emit("room-turn", { turnUserId: roomTurns2vs2[room] });
+      }
+      if (global.roomTimeouts) {
+        if (global.roomTimeouts[room]) {
+          clearTimeout(global.roomTimeouts[room]);
+        }
+        global.roomTimeouts[room] = setTimeout(() => {
+          if (gameRooms2vs2[room] && gameRooms2vs2[room].length === 1) {
+            console.log(`⏰ Phòng 2vs2 ${room} chỉ còn 1 người chơi sau leave-room, tự động xóa sau 5 phút.`);
+            delete gameRooms2vs2[room];
+            delete scrambles2vs2[room];
+            if (socket.server.solveCount) delete socket.server.solveCount[room];
+            delete global.roomTimeouts[room];
+            delete roomHosts2vs2[room];
+            delete roomTurns2vs2[room];
+            io.to(room).emit("room-users", { users: [], hostId: null });
+            io.to(room).emit("room-turn", { turnUserId: null });
+          }
+        }, 5 * 60 * 1000);
+      }
+    } else {
+      if (global.roomTimeouts && global.roomTimeouts[room]) {
+        clearTimeout(global.roomTimeouts[room]);
+        delete global.roomTimeouts[room];
+      }
+    }
+  }
+}
+
 
 
 // Tạo HTTP server để phục vụ REST API và Socket.io
@@ -238,11 +732,14 @@ const server = http.createServer((req, res) => {
   // REST endpoint: /room-users/:roomId
   if (parsed.pathname && parsed.pathname.startsWith("/room-users/")) {
     const roomId = parsed.pathname.split("/room-users/")[1]?.toUpperCase();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    
+    // Kiểm tra cả 1vs1 và 2vs2 rooms
     if (roomId && rooms[roomId]) {
-      res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(rooms[roomId]));
+    } else if (roomId && gameRooms2vs2[roomId]) {
+      res.end(JSON.stringify(gameRooms2vs2[roomId]));
     } else {
-      res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify([]));
     }
     return;
@@ -289,11 +786,18 @@ const server = http.createServer((req, res) => {
   // REST endpoint: /active-rooms
   if (parsed.pathname === "/active-rooms") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    // Trả về danh sách phòng kèm meta và số lượng user
-    const result = Object.keys(rooms).map(roomId => ({
+    // Trả về danh sách phòng 1vs1 kèm meta và số lượng user
+    const result1vs1 = Object.keys(rooms).map(roomId => ({
       roomId,
       meta: roomsMeta[roomId] || {},
       usersCount: Array.isArray(rooms[roomId]) ? rooms[roomId].length : 0
+    }));
+    
+    // Trả về danh sách phòng 2vs2 kèm meta và số lượng user
+    const result2vs2 = Object.keys(gameRooms2vs2).map(roomId => ({
+      roomId,
+      meta: roomsMeta2vs2[roomId] || {},
+      usersCount: Array.isArray(gameRooms2vs2[roomId]) ? gameRooms2vs2[roomId].length : 0
     }));
     
     // Thêm waiting rooms 2vs2
@@ -310,8 +814,8 @@ const server = http.createServer((req, res) => {
       isWaitingRoom: true
     }));
     
-    // Gộp cả 2 loại phòng
-    const allRooms = [...result, ...waitingRoomResults];
+    // Gộp cả 3 loại phòng: 1vs1, 2vs2, và waiting rooms
+    const allRooms = [...result1vs1, ...result2vs2, ...waitingRoomResults];
     res.end(JSON.stringify(allRooms));
     return;
   }
@@ -320,7 +824,21 @@ const server = http.createServer((req, res) => {
   if (parsed.pathname && parsed.pathname.startsWith("/room-meta/")) {
     const roomId = parsed.pathname.split("/room-meta/")[1]?.toUpperCase();
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(roomsMeta[roomId] || {}));
+    
+    // Kiểm tra cả 1vs1 và 2vs2 rooms
+    const meta1vs1 = roomsMeta[roomId] || {};
+    const meta2vs2 = roomsMeta2vs2[roomId] || {};
+    const waitingMeta = waitingRooms[roomId] ? {
+      gameMode: '2vs2',
+      event: '3x3',
+      displayName: waitingRooms[roomId].displayName || roomId,
+      password: waitingRooms[roomId].password || null,
+      isWaitingRoom: true
+    } : {};
+    
+    // Trả về meta từ phòng nào có dữ liệu
+    const finalMeta = meta1vs1.event ? meta1vs1 : (meta2vs2.event ? meta2vs2 : waitingMeta);
+    res.end(JSON.stringify(finalMeta));
     return;
   }
   // Đã loại bỏ endpoint /room-spectators vì không còn logic spectator
@@ -411,115 +929,31 @@ io.on("connection", (socket) => {
 
   // Xử lý rời phòng chủ động từ client
   socket.on("leave-room", ({ roomId, userId }) => {
-    removeUserAndCleanup(roomId?.toUpperCase(), userId);
+    const room = roomId?.toUpperCase();
+    const gameMode = socket.data?.gameMode || '1vs1';
+    
+    if (gameMode === '2vs2') {
+      handleLeaveRoom2vs2(room, userId);
+    } else {
+      removeUserAndCleanup(room, userId);
+    }
   });
 
-socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, displayName, password }) => {
+socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, displayName, password, gameMode }) => {
     const room = roomId.toUpperCase();
     if (!userName || typeof userName !== "string" || !userName.trim() || !userId || typeof userId !== "string" || !userId.trim()) {
       console.log(`❌ Không cho phép join-room với userName/userId rỗng hoặc không hợp lệ: '${userName}' '${userId}'`);
       return;
     }
-    console.log(`👥 ${userName} (${userId}) joined room ${room} as player (socket.id: ${socket.id})`);
-    socket.join(room);
-    socket.data = socket.data || {};
-    socket.data.room = room;
-    socket.data.userName = userName;
-    socket.data.userId = userId;
 
-    if (!rooms[room]) rooms[room] = [];
-    let isNewRoom = false;
-    if (rooms[room].length === 0) {
-      roomsMeta[room] = {
-        event: event || "3x3",
-        displayName: displayName || room,
-        password: password || ""
-      };
-      isNewRoom = true;
-      // Gán host là userId đầu tiên
-      roomHosts[room] = userId;
-      // Gán lượt chơi ban đầu là host
-      roomTurns[room] = userId;
+    // Tách biệt logic cho 2vs2 và 1vs1
+    if (gameMode === '2vs2') {
+      console.log(`🎮 ${userName} (${userId}) joined 2vs2 game room ${room} (socket.id: ${socket.id})`);
+      handleJoin2vs2GameRoom(socket, room, userId, userName, event, displayName, password);
     } else {
-      const roomPassword = roomsMeta[room]?.password || "";
-      if (roomPassword && password !== roomPassword) {
-        socket.emit("wrong-password", { message: "Sai mật khẩu phòng!" });
-        return;
-      }
+      console.log(`🎮 ${userName} (${userId}) joined 1vs1 game room ${room} (socket.id: ${socket.id})`);
+      handleJoin1vs1GameRoom(socket, room, userId, userName, event, displayName, password);
     }
-    if (rooms[room].length >= 2) {
-      socket.emit("room-full", { message: "Phòng đã đủ 2 người chơi" });
-      return;
-    }
-
-    if (!rooms[room].some(u => u.userId === userId)) {
-      rooms[room].push({ userId, userName });
-    }
-
-    // Kiểm tra và dọn dẹp phòng nếu trống (sau khi join/leave)
-    removeUserAndCleanup(room, undefined); // undefined để không xóa ai, chỉ kiểm tra phòng trống
-
-  // Broadcast danh sách user, host và turn
-  io.to(room).emit("room-users", { users: rooms[room], hostId: roomHosts[room] });
-  io.to(room).emit("room-turn", { turnUserId: roomTurns[room] });
-    if (isNewRoom) {
-      io.emit("update-active-rooms");
-    }
-    console.log("All rooms:", JSON.stringify(rooms));
-
-    if (!scrambles[room]) {
-      scrambles[room] = [];
-      const eventType = roomsMeta[room]?.event || "3x3";
-      const scrambleList = generateLocalScrambles(eventType);
-      scrambles[room] = scrambleList;
-      if (scrambles[room] && scrambles[room].length > 0) {
-        io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
-      }
-    }
-    if (scrambles[room] && scrambles[room].length > 0) {
-      io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
-    }
-
-    if (rooms[room].length === 1) {
-      // Khi chỉ còn 1 người, luôn set turn về cho host
-      roomTurns[room] = roomHosts[room];
-      io.to(room).emit("room-turn", { turnUserId: roomTurns[room] });
-      if (roomTimeouts[room]) {
-        clearTimeout(roomTimeouts[room]);
-      }
-      roomTimeouts[room] = setTimeout(() => {
-        if (rooms[room] && rooms[room].length === 1) {
-          console.log(`⏰ Phòng ${room} chỉ có 1 người chơi sau 5 phút, tự động xóa.`);
-          delete rooms[room];
-          delete scrambles[room];
-          if (socket.server.solveCount) delete socket.server.solveCount[room];
-          delete roomTimeouts[room];
-          delete roomHosts[room];
-          delete roomsMeta[room]; // Xóa meta khi phòng trống
-          io.to(room).emit("room-users", { users: [], hostId: null });
-        }
-      }, 5 * 60 * 1000);
-      // console.log(`⏳ Đặt timeout tự hủy phòng ${room} sau 5 phút nếu không có ai vào thêm.`);
-    } else {
-      if (roomTimeouts[room]) {
-        clearTimeout(roomTimeouts[room]);
-        delete roomTimeouts[room];
-        console.log(`❌ Hủy timeout tự hủy phòng ${room} vì đã có thêm người chơi.`);
-      }
-      if (rooms[room].length === 2) {
-        if (socket.server.solveCount) socket.server.solveCount[room] = 0;
-        const eventType = roomsMeta[room]?.event || "3x3";
-        scrambles[room] = generateLocalScrambles(eventType);
-        io.to(room).emit("room-reset");
-        if (scrambles[room] && scrambles[room].length > 0) {
-          io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
-        }
-        // Khi đủ 2 người, set turn về cho host
-        roomTurns[room] = roomHosts[room];
-        io.to(room).emit("room-turn", { turnUserId: roomTurns[room] });
-      }
-    }
-    socket.emit("room-joined");
   });
 
   // Chat event: relay chat message to all users in the room
@@ -539,31 +973,17 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
 
   socket.on("solve", ({ roomId, userId, userName, time }) => {
     const room = roomId.toUpperCase();
-    // console.log(`🧩 ${userName} (${userId}) solved in ${time}ms`);
+    const gameMode = socket.data?.gameMode || '1vs1';
+    
+    // console.log(`🧩 ${userName} (${userId}) solved in ${time}ms (${gameMode})`);
     // Gửi kết quả cho đối thủ
     socket.to(room).emit("opponent-solve", { userId, userName, time });
 
-    // Quản lý lượt giải để gửi scramble tiếp theo
-    if (!socket.server.solveCount) socket.server.solveCount = {};
-    if (!socket.server.solveCount[room]) socket.server.solveCount[room] = 0;
-    socket.server.solveCount[room]++;
-    // Khi tổng số lượt giải là số chẵn (2,4,6,8,10) thì gửi scramble tiếp theo
-    const totalSolves = socket.server.solveCount[room];
-    if (totalSolves % 2 === 0) {
-      const idx = totalSolves / 2;
-      if (scrambles[room] && scrambles[room][idx]) {
-        io.to(room).emit("scramble", { scramble: scrambles[room][idx], index: idx });
-      }
-    }
-    // Đổi lượt chơi cho người còn lại
-    if (rooms[room] && rooms[room].length === 2) {
-      const userIds = rooms[room].map(u => u.userId);
-      // Chuyển lượt cho người còn lại
-      const nextTurn = userIds.find(id => id !== userId);
-      if (nextTurn) {
-        roomTurns[room] = nextTurn;
-        io.to(room).emit("room-turn", { turnUserId: nextTurn });
-      }
+    // Tách biệt logic cho 2vs2 và 1vs1
+    if (gameMode === '2vs2') {
+      handleSolve2vs2(room, userId, userName, time);
+    } else {
+      handleSolve1vs1(room, userId, userName, time);
     }
   })
     // --- Rematch events ---
@@ -575,14 +995,28 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
 
 socket.on("rematch-accepted", ({ roomId }) => {
   const room = roomId.toUpperCase();
-  // Sinh lại 5 scramble mới cho phòng này đúng thể loại
-  const eventType = roomsMeta[room]?.event || "3x3";
-  scrambles[room] = generateLocalScrambles(eventType);
-  // Reset solveCount về 0
-  if (socket.server.solveCount) socket.server.solveCount[room] = 0;
-  io.to(room).emit("rematch-accepted");
-  if (scrambles[room] && scrambles[room].length > 0) {
-    io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
+  const gameMode = socket.data?.gameMode || '1vs1';
+  
+  if (gameMode === '2vs2') {
+    // Sinh lại 5 scramble mới cho phòng 2vs2
+    const eventType = roomsMeta2vs2[room]?.event || "3x3";
+    scrambles2vs2[room] = generateLocalScrambles(eventType);
+    // Reset solveCount về 0
+    if (socket.server.solveCount) socket.server.solveCount[room] = 0;
+    io.to(room).emit("rematch-accepted");
+    if (scrambles2vs2[room] && scrambles2vs2[room].length > 0) {
+      io.to(room).emit("scramble", { scramble: scrambles2vs2[room][0], index: 0 });
+    }
+  } else {
+    // Sinh lại 5 scramble mới cho phòng 1vs1
+    const eventType = roomsMeta[room]?.event || "3x3";
+    scrambles[room] = generateLocalScrambles(eventType);
+    // Reset solveCount về 0
+    if (socket.server.solveCount) socket.server.solveCount[room] = 0;
+    io.to(room).emit("rematch-accepted");
+    if (scrambles[room] && scrambles[room].length > 0) {
+      io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
+    }
   }
 });
 
@@ -644,79 +1078,17 @@ socket.on("rematch-accepted", ({ roomId }) => {
     console.log("❌ Client disconnected");
     const room = socket.data?.room;
     const userId = socket.data?.userId;
-    if (room && rooms[room]) {
-      rooms[room] = rooms[room].filter(u => u && u.userId !== userId && u.userId !== "");
-      // Nếu host rời phòng, chọn người còn lại làm host mới
-      if (roomHosts[room] === userId) {
-        if (rooms[room].length > 0) {
-          roomHosts[room] = rooms[room][0].userId;
-        } else {
-          delete roomHosts[room];
-        }
-      }
-      // Nếu turnUserId rời phòng, chuyển lượt cho người còn lại (nếu còn)
-      if (roomTurns[room] === userId) {
-        if (rooms[room].length > 0) {
-          roomTurns[room] = rooms[room][0].userId;
-        } else {
-          delete roomTurns[room];
-        }
-      }
-      io.to(room).emit("room-users", { users: rooms[room], hostId: roomHosts[room] || null });
-      io.to(room).emit("room-turn", { turnUserId: roomTurns[room] || null });
-  // console.log("Current players in room", room, rooms[room]);
-      const filteredUsers = rooms[room].filter(u => u);
-      if (filteredUsers.length === 0) {
-        delete rooms[room];
-        delete scrambles[room];
-        if (socket.server.solveCount) delete socket.server.solveCount[room];
-        if (global.roomTimeouts && global.roomTimeouts[room]) {
-          clearTimeout(global.roomTimeouts[room]);
-          delete global.roomTimeouts[room];
-        }
-        delete roomHosts[room];
-        delete roomTurns[room];
-        delete roomsMeta[room]; // Xóa meta khi phòng trống
-        console.log(`Room ${room} deleted from rooms object (empty).`);
-      } else if (filteredUsers.length === 1) {
-        if (socket.server.solveCount) socket.server.solveCount[room] = 0;
-        const eventType = roomsMeta[room]?.event || "3x3";
-        scrambles[room] = generateLocalScrambles(eventType);
-        if (scrambles[room] && scrambles[room].length > 0) {
-          io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
-        }
-        io.to(room).emit("room-reset");
-        // Khi chỉ còn 1 người, set turn về cho host
-        if (rooms[room].length === 1) {
-          roomTurns[room] = roomHosts[room];
-          io.to(room).emit("room-turn", { turnUserId: roomTurns[room] });
-        }
-        if (global.roomTimeouts) {
-          if (global.roomTimeouts[room]) {
-            clearTimeout(global.roomTimeouts[room]);
-          }
-          global.roomTimeouts[room] = setTimeout(() => {
-            if (rooms[room] && rooms[room].length === 1) {
-              console.log(`⏰ Phòng ${room} chỉ còn 1 người chơi sau disconnect, tự động xóa sau 5 phút.`);
-              delete rooms[room];
-              delete scrambles[room];
-              if (socket.server.solveCount) delete socket.server.solveCount[room];
-              delete global.roomTimeouts[room];
-              delete roomHosts[room];
-              delete roomTurns[room];
-              io.to(room).emit("room-users", { users: [], hostId: null });
-              io.to(room).emit("room-turn", { turnUserId: null });
-            }
-          }, 5 * 60 * 1000);
-          // console.log(`⏳ Đặt timeout tự hủy phòng ${room} sau 5 phút vì chỉ còn 1 người chơi.`);
-        }
+    const gameMode = socket.data?.gameMode || '1vs1';
+    
+    if (room) {
+      if (gameMode === '2vs2') {
+        handleDisconnect2vs2(room, userId);
       } else {
-        if (global.roomTimeouts && global.roomTimeouts[room]) {
-          clearTimeout(global.roomTimeouts[room]);
-          delete global.roomTimeouts[room];
-        }
+        handleDisconnect1vs1(room, userId);
       }
     }
+    
+    // Cleanup empty room
     if (rooms[""]) {
       const filteredEmptyRoom = rooms[""]?.filter(u => u);
       if (filteredEmptyRoom.length === 0) {
@@ -738,9 +1110,16 @@ socket.on("rematch-accepted", ({ roomId }) => {
   // Join waiting room
   socket.on('join-waiting-room', (data) => {
     const { roomId, userId, userName, displayName, password } = data;
+    
+    console.log('=== SERVER RECEIVED JOIN-WAITING-ROOM ===');
+    console.log('Data received:', data);
+    console.log('Room ID:', roomId);
+    console.log('User ID:', userId);
+    console.log('User Name:', userName);
 
     
     if (!waitingRooms[roomId]) {
+      console.log('Creating new waiting room:', roomId);
       waitingRooms[roomId] = {
         roomId,
         players: [],
@@ -751,6 +1130,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
         password: password || null // Mật khẩu phòng
       };
     } else {
+      console.log('Updating existing waiting room:', roomId);
       // Cập nhật displayName và password nếu có
       if (displayName) {
         waitingRooms[roomId].displayName = displayName;
@@ -799,9 +1179,17 @@ socket.on("rematch-accepted", ({ roomId }) => {
    
     
     socket.join(`waiting-${roomId}`);
+    console.log('Socket joined room:', `waiting-${roomId}`);
+    
+    console.log('=== EMITTING WAITING-ROOM-UPDATED ===');
+    console.log('Room data to emit:', waitingRooms[roomId]);
+    console.log('Players count:', waitingRooms[roomId].players.length);
+    console.log('Players:', waitingRooms[roomId].players);
     
     socket.emit('waiting-room-updated', waitingRooms[roomId]);
     socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
+    
+    console.log('Emitted waiting-room-updated to socket and room');
     
     // Emit update active rooms để RoomTab hiển thị phòng chờ
     io.emit("update-active-rooms");
