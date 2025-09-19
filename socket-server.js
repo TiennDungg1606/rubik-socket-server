@@ -190,26 +190,18 @@ const server = http.createServer((req, res) => {
     // Trả về danh sách phòng kèm meta và số lượng user
     const result = Object.keys(rooms).map(roomId => ({
       roomId,
-      meta: roomsMeta[roomId] || {},
+      meta: {
+        ...roomsMeta[roomId] || {},
+        gameMode: "1vs1"
+      },
       usersCount: Array.isArray(rooms[roomId]) ? rooms[roomId].length : 0
     }));
     
-    // Thêm waiting rooms 2vs2
-    const waitingRoomResults = Object.keys(waitingRooms).map(roomId => ({
-      roomId,
-      meta: { 
-        gameMode: '2vs2',
-        event: '3x3', // default event
-        displayName: waitingRooms[roomId].displayName || roomId,
-        password: waitingRooms[roomId].password || null,
-        isWaitingRoom: true
-      },
-      usersCount: waitingRooms[roomId].players.length,
-      isWaitingRoom: true
-    }));
+    // Thêm waiting rooms 2vs2 từ module
+    const result2vs2 = game2vs2.getActiveRooms2vs2();
     
     // Gộp cả 2 loại phòng
-    const allRooms = [...result, ...waitingRoomResults];
+    const allRooms = [...result, ...result2vs2];
     res.end(JSON.stringify(allRooms));
     return;
   }
