@@ -700,6 +700,250 @@ function createWaitingRoom(roomId, gameMode, event, displayName, password) {
   }
 }
 
+// ===== API FUNCTIONS =====
+
+// Lấy danh sách phòng 2vs2 đang hoạt động
+function getActiveRooms2vs2() {
+  const result = [];
+  
+  // Thêm waiting rooms
+  Object.keys(waitingRooms).forEach(roomId => {
+    const room = waitingRooms[roomId];
+    result.push({
+      roomId,
+      meta: {
+        event: room.event || "3x3",
+        displayName: room.displayName || roomId,
+        password: room.password || null,
+        isWaitingRoom: true,
+        gameMode: "2vs2"
+      },
+      usersCount: room.players.length
+    });
+  });
+  
+  // Thêm game rooms
+  Object.keys(gameRooms2vs2).forEach(roomId => {
+    const room = gameRooms2vs2[roomId];
+    result.push({
+      roomId,
+      meta: {
+        ...roomsMeta2vs2[roomId] || {},
+        gameMode: "2vs2"
+      },
+      usersCount: room.length
+    });
+  });
+  
+  return result;
+}
+
+// Lấy danh sách user trong phòng 2vs2
+function getRoomUsers2vs2(roomId) {
+  if (gameRooms2vs2[roomId]) {
+    return gameRooms2vs2[roomId];
+  }
+  return [];
+}
+
+// Lấy meta của phòng 2vs2
+function getRoomMeta2vs2(roomId) {
+  return roomsMeta2vs2[roomId] || {};
+}
+
+// Tạo waiting room mới
+function createWaitingRoom(roomId, gameMode, event, displayName, password) {
+  waitingRooms[roomId] = {
+    roomId,
+    players: [],
+    roomCreator: null,
+    gameStarted: false,
+    createdAt: Date.now(),
+    displayName: displayName || roomId,
+    password: password || null,
+    event: event || "3x3"
+  };
+  
+  console.log(`🎮 Created 2vs2 waiting room: ${roomId} (${displayName || roomId})`);
+}
+
+// ===== WAITING ROOM HANDLERS =====
+
+// Join waiting room
+function handleJoinWaitingRoom(io, socket, data) {
+  const { roomId, userId, userName, displayName, password } = data;
+  
+  if (!waitingRooms[roomId]) {
+    waitingRooms[roomId] = {
+      roomId,
+      players: [],
+      roomCreator: userId,
+      gameStarted: false,
+      createdAt: Date.now(),
+      displayName: displayName || roomId,
+      password: password || null,
+      event: "3x3"
+    };
+  }
+  
+  // Kiểm tra password nếu có
+  if (waitingRooms[roomId].password && password !== waitingRooms[roomId].password) {
+    socket.emit('wrong-password', { message: 'Sai mật khẩu phòng!' });
+    return;
+  }
+  
+  // Thêm player vào room
+  const existingPlayer = waitingRooms[roomId].players.find(p => p.id === userId);
+  if (!existingPlayer) {
+    const newPlayer = {
+      id: userId,
+      name: userName,
+      userName: userName,
+      isReady: false,
+      isObserver: false,
+      team: null,
+      role: 'player'
+    };
+    
+    waitingRooms[roomId].players.push(newPlayer);
+    reorganizeSeating(waitingRooms[roomId]);
+  }
+  
+  socket.join(`waiting-${roomId}`);
+  socket.emit('waiting-room-updated', waitingRooms[roomId]);
+  socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
+  
+  console.log(`📊 Waiting room ${roomId}: ${waitingRooms[roomId].players.length} players`);
+}
+
+// Leave waiting room
+function handleLeaveWaitingRoom(io, socket, data) {
+  const { roomId, userId } = data;
+  
+  if (waitingRooms[roomId]) {
+    waitingRooms[roomId].players = waitingRooms[roomId].players.filter(p => p.id !== userId);
+    
+    if (waitingRooms[roomId].players.length === 0) {
+      delete waitingRooms[roomId];
+    } else {
+      reorganizeSeating(waitingRooms[roomId]);
+      socket.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
+    }
+  }
+  
+  socket.leave(`waiting-${roomId}`);
+}
+
+// Toggle ready status
+function handleToggleReady(io, socket, data) {
+  const { roomId, userId } = data;
+  
+  if (waitingRooms[roomId]) {
+    const player = waitingRooms[roomId].players.find(p => p.id === userId);
+    if (player) {
+      player.isReady = !player.isReady;
+      io.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
+    }
+  }
+}
+
+// Toggle observer status
+function handleToggleObserver(io, socket, data) {
+  const { roomId, userId } = data;
+  
+  if (waitingRooms[roomId]) {
+    const player = waitingRooms[roomId].players.find(p => p.id === userId);
+    if (player) {
+      if (player.role === 'observer') {
+        player.role = 'player';
+        player.isReady = false;
+      } else {
+        player.role = 'observer';
+        player.isReady = false;
+      }
+      
+      reorganizeSeating(waitingRooms[roomId]);
+      io.to(`waiting-${roomId}`).emit('waiting-room-updated', waitingRooms[roomId]);
+    }
+  }
+}
+
+// Start game
+function handleStartGame(io, socket, data) {
+  const { roomId } = data;
+  
+  if (waitingRooms[roomId]) {
+    const players = waitingRooms[roomId].players.filter(p => p.role !== 'observer');
+    const readyPlayers = players.filter(p => p.isReady);
+    
+    if (readyPlayers.length >= 2) {
+      waitingRooms[roomId].gameStarted = true;
+      
+      io.to(`waiting-${roomId}`).emit('game-started', { 
+        roomId, 
+        gameMode: '2vs2',
+        players: waitingRooms[roomId].players 
+      });
+      
+      delete waitingRooms[roomId];
+    }
+  }
+}
+
+// Chat trong waiting room
+function handleWaitingRoomChat(io, socket, data) {
+  const { roomId, userId, userName, message } = data;
+  
+  if (waitingRooms[roomId]) {
+    socket.to(`waiting-${roomId}`).emit('chat', { userId, userName, message });
+  }
+}
+
+// Swap seat request
+function handleSwapSeatRequest(io, socket, data) {
+  const { roomId, fromUserId, targetUserId, fromSeat, targetSeat } = data;
+  
+  if (waitingRooms[roomId]) {
+    io.to(`waiting-${roomId}`).emit('swap-seat-request', {
+      fromUserId,
+      targetUserId,
+      fromSeat,
+      targetSeat
+    });
+  }
+}
+
+// Swap seat response
+function handleSwapSeatResponse(io, socket, data) {
+  const { roomId, fromUserId, targetUserId, accepted } = data;
+  
+  if (waitingRooms[roomId]) {
+    if (accepted) {
+      const fromPlayer = waitingRooms[roomId].players.find(p => p.id === fromUserId);
+      const targetPlayer = waitingRooms[roomId].players.find(p => p.id === targetUserId);
+      
+      if (fromPlayer && targetPlayer) {
+        const tempTeam = fromPlayer.team;
+        const tempPosition = fromPlayer.position;
+        
+        fromPlayer.team = targetPlayer.team;
+        fromPlayer.position = targetPlayer.position;
+        
+        targetPlayer.team = tempTeam;
+        targetPlayer.position = tempPosition;
+        
+        reorganizeSeating(waitingRooms[roomId]);
+      }
+    }
+    
+    io.to(`waiting-${roomId}`).emit('swap-seat-response', {
+      fromUserId,
+      targetUserId,
+      accepted
+    });
+  }
+}
+
 module.exports = {
   // Game room functions
   handleJoin2vs2GameRoom,

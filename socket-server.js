@@ -1084,7 +1084,10 @@ server.on('request', (req, res) => {
     // Trả về danh sách phòng 1vs1 kèm meta và số lượng user
     const result1vs1 = Object.keys(rooms).map(roomId => ({
       roomId,
-      meta: roomsMeta[roomId] || {},
+      meta: {
+        ...roomsMeta[roomId] || {},
+        gameMode: "1vs1"
+      },
       usersCount: Array.isArray(rooms[roomId]) ? rooms[roomId].length : 0
     }));
     
