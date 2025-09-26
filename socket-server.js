@@ -471,6 +471,9 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
     removeUserAndCleanup(room, undefined); // undefined để không xóa ai, chỉ kiểm tra phòng trống
 
   // Broadcast danh sách user, host và turn
+  console.log(`=== DEBUG: Emitting room-users for room ${room} ===`);
+  console.log(`=== DEBUG: rooms[${room}] ===`, rooms[room]);
+  console.log(`=== DEBUG: rooms[${room}] length ===`, rooms[room]?.length);
   io.to(room).emit("room-users", { users: rooms[room], hostId: roomHosts[room] });
   io.to(room).emit("room-turn", { turnUserId: roomTurns[room] });
     if (isNewRoom) {
