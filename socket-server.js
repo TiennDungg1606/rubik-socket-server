@@ -911,6 +911,19 @@ socket.on("rematch-accepted", ({ roomId }) => {
     roomsMeta[roomId].event = '3x3'; // default event
     roomsMeta[roomId].password = waitingRooms[roomId].password || '';
     
+    // Cập nhật rooms[roomId] với 4 người chơi từ waiting room
+    rooms[roomId] = waitingRooms[roomId].players.map(player => ({
+      userId: player.id,
+      userName: player.name
+    }));
+    
+    // Cập nhật roomHosts và roomTurns
+    roomHosts[roomId] = waitingRooms[roomId].roomCreator;
+    roomTurns[roomId] = waitingRooms[roomId].players[0].id; // Bắt đầu với player đầu tiên
+    
+    // Emit room-users để clients cập nhật pendingUsers
+    io.to(roomId).emit("room-users", { users: rooms[roomId], hostId: roomHosts[roomId] });
+    
     // Chuyển hướng tất cả players sang room game
     socket.emit('game-started', { roomId, gameMode: '2vs2' });
     socket.to(`waiting-${roomId}`).emit('game-started', { roomId, gameMode: '2vs2' });
