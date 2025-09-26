@@ -417,7 +417,7 @@ io.on("connection", (socket) => {
     removeUserAndCleanup(roomId?.toUpperCase(), userId);
   });
 
-socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, displayName, password }) => {
+socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, displayName, password, gameMode }) => {
     console.log(`=== DEBUG: Received join-room event ===`);
     console.log(`=== DEBUG: roomId=${roomId}, userId=${userId}, userName=${userName}, gameMode=${gameMode || 'not provided'}`);
     
