@@ -292,7 +292,10 @@ const server = http.createServer((req, res) => {
     // Trả về danh sách phòng kèm meta và số lượng user
     const result = Object.keys(rooms).map(roomId => ({
       roomId,
-      meta: roomsMeta[roomId] || {},
+      meta: {
+        ...roomsMeta[roomId],
+        displayName: roomsMeta[roomId]?.displayName || roomId // Đảm bảo luôn có displayName
+      },
       usersCount: Array.isArray(rooms[roomId]) ? rooms[roomId].length : 0
     }));
     
@@ -441,6 +444,14 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
       // Gán lượt chơi ban đầu là host
       roomTurns[room] = userId;
     } else {
+      // Cập nhật roomsMeta với displayName nếu có (cho phòng đã tồn tại)
+      if (displayName && displayName !== room) {
+        if (!roomsMeta[room]) {
+          roomsMeta[room] = {};
+        }
+        roomsMeta[room].displayName = displayName;
+      }
+      
       const roomPassword = roomsMeta[room]?.password || "";
       if (roomPassword && password !== roomPassword) {
         socket.emit("wrong-password", { message: "Sai mật khẩu phòng!" });
@@ -890,6 +901,15 @@ socket.on("rematch-accepted", ({ roomId }) => {
     
     // Đánh dấu game đã bắt đầu
     waitingRooms[roomId].gameStarted = true;
+    
+    // Cập nhật roomsMeta với displayName từ waiting room
+    if (!roomsMeta[roomId]) {
+      roomsMeta[roomId] = {};
+    }
+    roomsMeta[roomId].displayName = waitingRooms[roomId].displayName || roomId;
+    roomsMeta[roomId].gameMode = '2vs2';
+    roomsMeta[roomId].event = '3x3'; // default event
+    roomsMeta[roomId].password = waitingRooms[roomId].password || '';
     
     // Chuyển hướng tất cả players sang room game
     socket.emit('game-started', { roomId, gameMode: '2vs2' });
