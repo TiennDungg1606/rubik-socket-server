@@ -418,6 +418,9 @@ io.on("connection", (socket) => {
   });
 
 socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, displayName, password }) => {
+    console.log(`=== DEBUG: Received join-room event ===`);
+    console.log(`=== DEBUG: roomId=${roomId}, userId=${userId}, userName=${userName}, gameMode=${gameMode || 'not provided'}`);
+    
     const room = roomId.toUpperCase();
     if (!userName || typeof userName !== "string" || !userName.trim() || !userId || typeof userId !== "string" || !userId.trim()) {
       console.log(`❌ Không cho phép join-room với userName/userId rỗng hoặc không hợp lệ: '${userName}' '${userId}'`);
@@ -430,9 +433,11 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
     socket.data.userName = userName;
     socket.data.userId = userId;
 
+    console.log(`=== DEBUG: Before room setup, rooms[${room}] =`, rooms[room]);
     if (!rooms[room]) rooms[room] = [];
     let isNewRoom = false;
     if (rooms[room].length === 0) {
+      console.log(`=== DEBUG: Creating new room ${room}`);
       roomsMeta[room] = {
         event: event || "3x3",
         displayName: displayName || room,
@@ -444,6 +449,7 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
       // Gán lượt chơi ban đầu là host
       roomTurns[room] = userId;
     } else {
+      console.log(`=== DEBUG: Joining existing room ${room}, current users:`, rooms[room].length);
       // Cập nhật roomsMeta với displayName nếu có (cho phòng đã tồn tại)
       if (displayName && displayName !== room) {
         if (!roomsMeta[room]) {
@@ -458,7 +464,9 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
         return;
       }
     }
+    console.log(`=== DEBUG: After adding user, rooms[${room}] length =`, rooms[room].length);
     if (rooms[room].length >= 2) {
+      console.log(`=== DEBUG: Room ${room} is full, rejecting join`);
       socket.emit("room-full", { message: "Phòng đã đủ 2 người chơi" });
       return;
     }
