@@ -518,7 +518,10 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
       return;
     }
 
-    if (!rooms[room].some(u => u.userId === userId)) {
+    const existingUser = rooms[room].find(u => u.userId === userId);
+    if (existingUser) {
+      existingUser.userName = userName;
+    } else {
       rooms[room].push({ userId, userName });
     }
 
@@ -968,16 +971,23 @@ socket.on("rematch-accepted", ({ roomId }) => {
     roomsMeta[roomId].gameMode = '2vs2';
     roomsMeta[roomId].event = '3x3'; // default event
     roomsMeta[roomId].password = waitingRooms[roomId].password || '';
-    
-    // Cập nhật rooms[roomId] với 4 người chơi từ waiting room
-    rooms[roomId] = waitingRooms[roomId].players.map(player => ({
+
+    // Snapshot toàn bộ người chơi (kể cả observer) cùng thông tin team/position
+    const playersSnapshot = waitingRooms[roomId].players.map(player => ({
       userId: player.id,
-      userName: player.name
+      userName: player.name,
+      team: player.team || null,
+      position: player.position ?? null,
+      role: player.role,
+      isObserver: !!player.isObserver,
+      isReady: !!player.isReady
     }));
+    rooms[roomId] = playersSnapshot;
     
     // Cập nhật roomHosts và roomTurns
     roomHosts[roomId] = waitingRooms[roomId].roomCreator;
-    roomTurns[roomId] = waitingRooms[roomId].players[0].id; // Bắt đầu với player đầu tiên
+    const firstActivePlayer = playersSnapshot.find(p => !p.isObserver);
+    roomTurns[roomId] = firstActivePlayer ? firstActivePlayer.userId : waitingRooms[roomId].roomCreator;
     
     // Emit room-users để clients cập nhật pendingUsers
     io.to(roomId).emit("room-users", { users: rooms[roomId], hostId: roomHosts[roomId] });
