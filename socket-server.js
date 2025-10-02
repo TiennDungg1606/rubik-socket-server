@@ -120,6 +120,42 @@ function reorganizeSeating(room) {
 
 }
 
+// Đặt timeout xóa phòng 2vs2 nếu không đủ 4 người trong 5 phút
+function setup2vs2RoomTimeout(room) {
+  if (!room || !roomsMeta[room]) return;
+  
+  // Chỉ áp dụng cho phòng 2vs2 (có displayName khác roomId)
+  const is2vs2Room = roomsMeta[room]?.displayName && roomsMeta[room].displayName !== room;
+  if (!is2vs2Room) return;
+  
+  // Xóa timeout cũ nếu có
+  if (global.roomTimeouts && global.roomTimeouts[room]) {
+    clearTimeout(global.roomTimeouts[room]);
+  }
+  
+  // Đặt timeout mới (5 phút = 300000ms)
+  global.roomTimeouts[room] = setTimeout(() => {
+    if (rooms[room] && rooms[room].length < 4) {
+      console.log(`Room ${room} deleted due to insufficient players (<4) after 5 minutes`);
+      
+      // Thông báo cho tất cả users trong phòng
+      io.to(room).emit("room-deleted", { 
+        message: "Phòng đã bị xóa do không đủ người chơi sau 5 phút" 
+      });
+      
+      // Xóa phòng
+      delete rooms[room];
+      delete scrambles[room];
+      if (io.sockets && io.sockets.server && io.sockets.server.solveCount) delete io.sockets.server.solveCount[room];
+      delete roomHosts[room];
+      delete roomTurns[room];
+      delete roomsMeta[room];
+      delete global.roomTimeouts[room];
+      io.emit("update-active-rooms");
+    }
+  }, 300000); // 5 phút
+}
+
 // Xóa user khỏi phòng và dọn dẹp nếu phòng trống
 function removeUserAndCleanup(room, userId) {
   if (!room || !rooms[room]) return;
@@ -143,7 +179,22 @@ function removeUserAndCleanup(room, userId) {
   io.to(room).emit("room-users", { users: rooms[room], hostId: roomHosts[room] || null });
   io.to(room).emit("room-turn", { turnUserId: roomTurns[room] || null });
   const filteredUsers = rooms[room].filter(u => u);
-  if (filteredUsers.length === 0) {
+  
+  // Reset timeout cho phòng 2vs2 nếu có người join
+  if (filteredUsers.length >= 2) {
+    setup2vs2RoomTimeout(room);
+  }
+  
+  // Xóa phòng nếu không còn ai hoặc chỉ còn 1 người trong phòng 2vs2
+  // Kiểm tra nếu là phòng 2vs2 bằng cách xem có displayName không (phòng 2vs2 luôn có displayName)
+  const is2vs2Room = roomsMeta[room]?.displayName && roomsMeta[room].displayName !== room;
+  const shouldDeleteRoom = filteredUsers.length === 0 || 
+    (is2vs2Room && filteredUsers.length === 1);
+    
+  if (shouldDeleteRoom) {
+    const roomType = is2vs2Room ? '2vs2' : '1vs1';
+    const reason = filteredUsers.length === 0 ? 'empty' : 'insufficient players';
+    
     delete rooms[room];
     delete scrambles[room];
     if (io.sockets && io.sockets.server && io.sockets.server.solveCount) delete io.sockets.server.solveCount[room];
@@ -155,7 +206,7 @@ function removeUserAndCleanup(room, userId) {
     delete roomTurns[room];
     delete roomsMeta[room];
     io.emit("update-active-rooms");
-    console.log(`Room ${room} deleted from rooms object (empty).`);
+    console.log(`Room ${room} (${roomType}) deleted from rooms object (${reason}).`);
   } else if (filteredUsers.length === 1) {
     if (io.sockets && io.sockets.server && io.sockets.server.solveCount) io.sockets.server.solveCount[room] = 0;
     const eventType = roomsMeta[room]?.event || "3x3";
@@ -418,26 +469,19 @@ io.on("connection", (socket) => {
   });
 
 socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, displayName, password, gameMode }) => {
-    console.log(`=== DEBUG: Received join-room event ===`);
-    console.log(`=== DEBUG: roomId=${roomId}, userId=${userId}, userName=${userName}, gameMode=${gameMode || 'not provided'}`);
-    
     const room = roomId.toUpperCase();
     if (!userName || typeof userName !== "string" || !userName.trim() || !userId || typeof userId !== "string" || !userId.trim()) {
-      console.log(`❌ Không cho phép join-room với userName/userId rỗng hoặc không hợp lệ: '${userName}' '${userId}'`);
       return;
     }
-    console.log(`👥 ${userName} (${userId}) joined room ${room} as player (socket.id: ${socket.id})`);
     socket.join(room);
     socket.data = socket.data || {};
     socket.data.room = room;
     socket.data.userName = userName;
     socket.data.userId = userId;
 
-    console.log(`=== DEBUG: Before room setup, rooms[${room}] =`, rooms[room]);
     if (!rooms[room]) rooms[room] = [];
     let isNewRoom = false;
     if (rooms[room].length === 0) {
-      console.log(`=== DEBUG: Creating new room ${room}`);
       roomsMeta[room] = {
         event: event || "3x3",
         displayName: displayName || room,
@@ -449,7 +493,6 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
       // Gán lượt chơi ban đầu là host
       roomTurns[room] = userId;
     } else {
-      console.log(`=== DEBUG: Joining existing room ${room}, current users:`, rooms[room].length);
       // Cập nhật roomsMeta với displayName nếu có (cho phòng đã tồn tại)
       if (displayName && displayName !== room) {
         if (!roomsMeta[room]) {
@@ -464,10 +507,11 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
         return;
       }
     }
-    console.log(`=== DEBUG: After adding user, rooms[${room}] length =`, rooms[room].length);
-    if (rooms[room].length >= 2) {
-      console.log(`=== DEBUG: Room ${room} is full, rejecting join`);
-      socket.emit("room-full", { message: "Phòng đã đủ 2 người chơi" });
+    
+    // Check if room is full based on game mode
+    const maxPlayers = gameMode === '2vs2' ? 4 : 2;
+    if (rooms[room].length > maxPlayers) {
+      socket.emit("room-full", { message: `Phòng đã đủ ${maxPlayers} người chơi` });
       return;
     }
 
@@ -477,13 +521,13 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
 
     // Kiểm tra và dọn dẹp phòng nếu trống (sau khi join/leave)
     removeUserAndCleanup(room, undefined); // undefined để không xóa ai, chỉ kiểm tra phòng trống
+    
+    // Đặt timeout xóa phòng 2vs2 nếu không đủ 4 người trong 5 phút
+    setup2vs2RoomTimeout(room);
 
-  // Broadcast danh sách user, host và turn
-  console.log(`=== DEBUG: Emitting room-users for room ${room} ===`);
-  console.log(`=== DEBUG: rooms[${room}] ===`, rooms[room]);
-  console.log(`=== DEBUG: rooms[${room}] length ===`, rooms[room]?.length);
-  io.to(room).emit("room-users", { users: rooms[room], hostId: roomHosts[room] });
-  io.to(room).emit("room-turn", { turnUserId: roomTurns[room] });
+    // Broadcast danh sách user, host và turn
+    io.to(room).emit("room-users", { users: rooms[room], hostId: roomHosts[room] });
+    io.to(room).emit("room-turn", { turnUserId: roomTurns[room] });
     if (isNewRoom) {
       io.emit("update-active-rooms");
     }
