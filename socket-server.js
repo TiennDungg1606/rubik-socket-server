@@ -546,7 +546,7 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
       io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
     }
 
-    if (rooms[room].length === 1) {
+    if (rooms[room] && rooms[room].length === 1) {
       // Khi chỉ còn 1 người, luôn set turn về cho host
       roomTurns[room] = roomHosts[room];
       io.to(room).emit("room-turn", { turnUserId: roomTurns[room] });
