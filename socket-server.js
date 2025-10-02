@@ -120,13 +120,14 @@ function reorganizeSeating(room) {
 
 }
 
-// Đặt timeout xóa phòng 2vs2 nếu không đủ 4 người trong 5 phút
-function setup2vs2RoomTimeout(room) {
+// Đặt timeout xóa phòng nếu không đủ người trong 5 phút
+function setupRoomTimeout(room) {
   if (!room || !roomsMeta[room]) return;
   
-  // Chỉ áp dụng cho phòng 2vs2 (có displayName khác roomId)
-  const is2vs2Room = roomsMeta[room]?.displayName && roomsMeta[room].displayName !== room;
-  if (!is2vs2Room) return;
+  // Xác định loại phòng và số người tối thiểu
+  const gameMode = roomsMeta[room]?.gameMode || "1vs1";
+  const is2vs2Room = gameMode === "2vs2";
+  const minPlayers = is2vs2Room ? 4 : 2;
   
   // Xóa timeout cũ nếu có
   if (global.roomTimeouts && global.roomTimeouts[room]) {
@@ -135,12 +136,13 @@ function setup2vs2RoomTimeout(room) {
   
   // Đặt timeout mới (5 phút = 300000ms)
   global.roomTimeouts[room] = setTimeout(() => {
-    if (rooms[room] && rooms[room].length < 4) {
-      console.log(`Room ${room} deleted due to insufficient players (<4) after 5 minutes`);
+    if (rooms[room] && rooms[room].length < minPlayers) {
+      const roomType = gameMode;
+      console.log(`Room ${room} (${roomType}) deleted due to insufficient players (<${minPlayers}) after 5 minutes`);
       
       // Thông báo cho tất cả users trong phòng
       io.to(room).emit("room-deleted", { 
-        message: "Phòng đã bị xóa do không đủ người chơi sau 5 phút" 
+        message: `Phòng đã bị xóa do không đủ người chơi sau 5 phút` 
       });
       
       // Xóa phòng
@@ -180,14 +182,14 @@ function removeUserAndCleanup(room, userId) {
   io.to(room).emit("room-turn", { turnUserId: roomTurns[room] || null });
   const filteredUsers = rooms[room].filter(u => u);
   
-  // Reset timeout cho phòng 2vs2 nếu có người join
+  // Reset timeout cho phòng nếu có người join
   if (filteredUsers.length >= 2) {
-    setup2vs2RoomTimeout(room);
+    setupRoomTimeout(room);
   }
   
   // Xóa phòng nếu không còn ai hoặc chỉ còn 1 người trong phòng 2vs2
-  // Kiểm tra nếu là phòng 2vs2 bằng cách xem có displayName không (phòng 2vs2 luôn có displayName)
-  const is2vs2Room = roomsMeta[room]?.displayName && roomsMeta[room].displayName !== room;
+  const gameMode = roomsMeta[room]?.gameMode || "1vs1";
+  const is2vs2Room = gameMode === "2vs2";
   const shouldDeleteRoom = filteredUsers.length === 0 || 
     (is2vs2Room && filteredUsers.length === 1);
     
@@ -485,7 +487,8 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
       roomsMeta[room] = {
         event: event || "3x3",
         displayName: displayName || room,
-        password: password || ""
+        password: password || "",
+        gameMode: gameMode || "1vs1"
       };
       isNewRoom = true;
       // Gán host là userId đầu tiên
@@ -522,8 +525,8 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
     // Kiểm tra và dọn dẹp phòng nếu trống (sau khi join/leave)
     removeUserAndCleanup(room, undefined); // undefined để không xóa ai, chỉ kiểm tra phòng trống
     
-    // Đặt timeout xóa phòng 2vs2 nếu không đủ 4 người trong 5 phút
-    setup2vs2RoomTimeout(room);
+    // Đặt timeout xóa phòng nếu không đủ người trong 5 phút
+    setupRoomTimeout(room);
 
     // Broadcast danh sách user, host và turn
     io.to(room).emit("room-users", { users: rooms[room], hostId: roomHosts[room] });
