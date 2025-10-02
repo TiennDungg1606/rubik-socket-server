@@ -481,7 +481,7 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
 
     if (!rooms[room]) rooms[room] = [];
     let isNewRoom = false;
-    if (rooms[room].length === 0) {
+    if (rooms[room] && rooms[room].length === 0) {
       roomsMeta[room] = {
         event: event || "3x3",
         displayName: displayName || room,
@@ -510,7 +510,7 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
     
     // Check if room is full based on game mode
     const maxPlayers = gameMode === '2vs2' ? 4 : 2;
-    if (rooms[room].length > maxPlayers) {
+    if (rooms[room] && rooms[room].length > maxPlayers) {
       socket.emit("room-full", { message: `Phòng đã đủ ${maxPlayers} người chơi` });
       return;
     }
@@ -572,7 +572,7 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
         delete roomTimeouts[room];
         console.log(`❌ Hủy timeout tự hủy phòng ${room} vì đã có thêm người chơi.`);
       }
-      if (rooms[room].length === 2) {
+      if (rooms[room] && rooms[room].length === 2) {
         if (socket.server.solveCount) socket.server.solveCount[room] = 0;
         const eventType = roomsMeta[room]?.event || "3x3";
         scrambles[room] = generateLocalScrambles(eventType);
