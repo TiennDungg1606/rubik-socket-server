@@ -155,19 +155,13 @@ function buildTurnOrderFromPlayers(players) {
     .filter(player => player.team === 'team2')
     .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
-  if (team1.length === 0 || team2.length === 0) {
-    return [...players]
-      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-      .map(player => player.userId);
+  if (team1.length > 0 || team2.length > 0) {
+    return [...team1, ...team2].map(player => player.userId);
   }
 
-  const order = [];
-  const maxLen = Math.max(team1.length, team2.length);
-  for (let i = 0; i < maxLen; i++) {
-    if (team1[i]) order.push(team1[i].userId);
-    if (team2[i]) order.push(team2[i].userId);
-  }
-  return order;
+  return [...players]
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+    .map(player => player.userId);
 }
 
 function setTurnSequenceForRoom(roomId, players, preferredCurrentId) {
@@ -619,11 +613,13 @@ io.on("connection", (socket) => {
         // Tính toán ms mới dựa trên thời gian thực tế
         const now = Date.now();
         const elapsed = now - timerState.lastUpdate;
-        const ms = timerState.ms + elapsed;
+        const updatedMs = timerState.ms + elapsed;
+        timerState.ms = updatedMs;
+        timerState.lastUpdate = now;
         io.to(room).emit("timer-update", {
           roomId: room,
           userId: timerState.userId,
-          ms,
+          ms: updatedMs,
           running: true,
           finished: false
         });
