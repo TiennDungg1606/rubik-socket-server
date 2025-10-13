@@ -11,6 +11,7 @@ const roomHosts = {}; // Lưu userId chủ phòng cho từng room
 const roomTurns = {}; // Lưu userId người được quyền giải (turn) cho từng room
 const roomTurnSequences = {}; // Lưu trật tự luân phiên của từng phòng (2vs2)
 const roomTurnIndices = {}; // Lưu vị trí hiện tại trong chu kỳ lượt chơi (2vs2)
+const roomTurnSequencesNormalized = {}; // Lưu userId đã normalize cho việc so khớp lượt
 // Đã loại bỏ logic người xem (spectator)
 
 // Quản lý phòng chờ 2vs2
@@ -144,6 +145,69 @@ function reorganizeSeating(room) {
 
 }
 
+const normalizeId = (value) => (typeof value === "string" ? value.trim().toLowerCase() : "");
+
+function buildTurnOrderFromPlayers(players) {
+  const team1 = players
+    .filter(player => player.team === 'team1')
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  const team2 = players
+    .filter(player => player.team === 'team2')
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+
+  if (team1.length === 0 || team2.length === 0) {
+    return [...players]
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+      .map(player => player.userId);
+  }
+
+  const order = [];
+  const maxLen = Math.max(team1.length, team2.length);
+  for (let i = 0; i < maxLen; i++) {
+    if (team1[i]) order.push(team1[i].userId);
+    if (team2[i]) order.push(team2[i].userId);
+  }
+  return order;
+}
+
+function setTurnSequenceForRoom(roomId, players, preferredCurrentId) {
+  const activePlayers = players.filter(player => player && !player.isObserver);
+  if (activePlayers.length === 0) {
+    delete roomTurnSequences[roomId];
+    delete roomTurnSequencesNormalized[roomId];
+    delete roomTurnIndices[roomId];
+    if (roomsMeta[roomId]) {
+      delete roomsMeta[roomId].playerOrder;
+    }
+    delete roomTurns[roomId];
+    return [];
+  }
+
+  let order = buildTurnOrderFromPlayers(activePlayers);
+  if (!order.length) {
+    order = activePlayers.map(player => player.userId);
+  }
+
+  roomTurnSequences[roomId] = order;
+  roomTurnSequencesNormalized[roomId] = order.map(normalizeId);
+  roomsMeta[roomId] = roomsMeta[roomId] || {};
+  roomsMeta[roomId].playerOrder = order;
+
+  const normalizedPreferred = normalizeId(preferredCurrentId);
+  let initialIndex = normalizedPreferred ? roomTurnSequencesNormalized[roomId].indexOf(normalizedPreferred) : -1;
+  if (initialIndex === -1) {
+    const existingIndex = typeof roomTurnIndices[roomId] === 'number' ? roomTurnIndices[roomId] : 0;
+    initialIndex = existingIndex;
+  }
+  if (initialIndex < 0 || initialIndex >= order.length) {
+    initialIndex = 0;
+  }
+
+  roomTurnIndices[roomId] = initialIndex;
+  roomTurns[roomId] = order[initialIndex];
+  return order;
+}
+
 // Đặt timeout xóa phòng nếu không đủ người trong 5 phút
 function setupRoomTimeout(room) {
   if (!room || !roomsMeta[room]) return;
@@ -203,6 +267,7 @@ function deleteRoomFully(room, reason = "cleanup") {
   if (roomHosts[room]) delete roomHosts[room];
   if (roomTurns[room]) delete roomTurns[room];
   if (roomTurnSequences[room]) delete roomTurnSequences[room];
+  if (roomTurnSequencesNormalized[room]) delete roomTurnSequencesNormalized[room];
   if (roomTurnIndices[room]) delete roomTurnIndices[room];
   if (roomsMeta[room]) {
     if (roomsMeta[room].insufficientDeadline) {
@@ -276,7 +341,6 @@ function removeUserAndCleanup(room, userId) {
   }
 
   io.to(room).emit("room-users", { users: currentUsers, hostId: roomHosts[room] || null });
-  io.to(room).emit("room-turn", { turnUserId: roomTurns[room] || null });
 
   const filteredUsers = currentUsers.filter(Boolean);
   const gameMode = roomsMeta[room]?.gameMode || "1vs1";
@@ -288,6 +352,8 @@ function removeUserAndCleanup(room, userId) {
     handle2vs2Cleanup(room, activeCount, normalizedUserId);
     return;
   }
+
+  io.to(room).emit("room-turn", { turnUserId: roomTurns[room] || null });
 
   if (filteredUsers.length === 0) {
     deleteRoomFully(room, "empty");
@@ -330,6 +396,10 @@ function handle2vs2Cleanup(room, activeCount, removedUserId) {
   const requiredPlayers = 4;
   const now = Date.now();
   if (!roomsMeta[room]) roomsMeta[room] = {};
+
+  const playersSnapshot = Array.isArray(rooms[room]) ? rooms[room] : [];
+  setTurnSequenceForRoom(room, playersSnapshot, roomTurns[room]);
+  io.to(room).emit("room-turn", { turnUserId: roomTurns[room] || null });
 
   if (activeCount === 0) {
     io.to(room).emit("room-force-close", { reason: "empty", roomId: room });
@@ -754,15 +824,21 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
       });
 
       socket.server.solveCount[room]++;
-      const order = Array.isArray(roomsMeta[room]?.playerOrder) && roomsMeta[room].playerOrder.length
-        ? roomsMeta[room].playerOrder
-        : roomPlayers.filter(p => p && !p.isObserver).map(p => p.userId);
 
-      if (!roomsMeta[room]?.playerOrder || roomsMeta[room].playerOrder.length !== order.length) {
-        roomsMeta[room] = roomsMeta[room] || {};
-        roomsMeta[room].playerOrder = order;
+      const normalizedSolverId = normalizeId(userId);
+      const playersInRoom = Array.isArray(roomPlayers) ? roomPlayers : [];
+      let order = Array.isArray(roomTurnSequences[room]) ? roomTurnSequences[room] : [];
+      let normalizedOrder = Array.isArray(roomTurnSequencesNormalized[room]) ? roomTurnSequencesNormalized[room] : [];
+
+      if (!order.length || order.length !== normalizedOrder.length) {
+        order = setTurnSequenceForRoom(room, playersInRoom, roomTurns[room]);
+        normalizedOrder = Array.isArray(roomTurnSequencesNormalized[room]) ? roomTurnSequencesNormalized[room] : [];
       }
-      roomTurnSequences[room] = order;
+
+      if (!normalizedOrder.includes(normalizedSolverId)) {
+        order = setTurnSequenceForRoom(room, playersInRoom, userId);
+        normalizedOrder = Array.isArray(roomTurnSequencesNormalized[room]) ? roomTurnSequencesNormalized[room] : [];
+      }
 
       const solvesPerRound = order.length > 0 ? order.length : 4;
       const totalSolves = socket.server.solveCount[room];
@@ -773,21 +849,21 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
         }
       }
 
-      if (order.length > 0) {
-        const currentIndex = order.indexOf(userId);
-        let nextIndex;
-        if (currentIndex === -1) {
-          const fallbackIndex = typeof roomTurnIndices[room] === "number" ? roomTurnIndices[room] : 0;
-          nextIndex = (fallbackIndex + 1) % order.length;
-        } else {
-          nextIndex = (currentIndex + 1) % order.length;
-        }
-        roomTurnIndices[room] = nextIndex;
-        const nextTurnUserId = order[nextIndex];
-        if (nextTurnUserId) {
-          roomTurns[room] = nextTurnUserId;
-          io.to(room).emit("room-turn", { turnUserId: nextTurnUserId });
-        }
+      if (!order.length) {
+        return;
+      }
+
+      let currentIndex = normalizedOrder.indexOf(normalizedSolverId);
+      if (currentIndex === -1) {
+        currentIndex = typeof roomTurnIndices[room] === "number" ? roomTurnIndices[room] : 0;
+      }
+
+      const nextIndex = (currentIndex + 1) % order.length;
+      roomTurnIndices[room] = nextIndex;
+      const nextTurnUserId = order[nextIndex];
+      if (nextTurnUserId) {
+        roomTurns[room] = nextTurnUserId;
+        io.to(room).emit("room-turn", { turnUserId: nextTurnUserId });
       }
 
       return;
@@ -1138,9 +1214,6 @@ socket.on("rematch-accepted", ({ roomId }) => {
       isReady: !!player.isReady
     }));
     rooms[roomId] = playersSnapshot;
-    const activePlayers = playersSnapshot.filter(p => !p.isObserver);
-    const playerOrder = activePlayers.map(p => p.userId);
-    roomsMeta[roomId].playerOrder = playerOrder;
     roomsMeta[roomId].playerMap = playersSnapshot.reduce((acc, player) => {
       acc[player.userId] = {
         team: player.team || null,
@@ -1151,14 +1224,18 @@ socket.on("rematch-accepted", ({ roomId }) => {
 
     // Cập nhật roomHosts và roomTurns
     roomHosts[roomId] = waitingRooms[roomId].roomCreator;
-    const firstActivePlayer = activePlayers[0];
-    const initialTurnUserId = firstActivePlayer ? firstActivePlayer.userId : waitingRooms[roomId].roomCreator;
-    roomTurns[roomId] = initialTurnUserId;
-    roomTurnSequences[roomId] = playerOrder;
-    roomTurnIndices[roomId] = playerOrder.length > 0 ? 0 : undefined;
+    const order = setTurnSequenceForRoom(roomId, playersSnapshot, null);
+    const currentTurnUserId = roomTurns[roomId] || (order[0] ?? waitingRooms[roomId].roomCreator);
+    roomTurns[roomId] = currentTurnUserId;
+    if (!order.length) {
+      delete roomTurnSequences[roomId];
+      delete roomTurnSequencesNormalized[roomId];
+      delete roomTurnIndices[roomId];
+    }
     
     // Emit room-users để clients cập nhật pendingUsers
     io.to(roomId).emit("room-users", { users: rooms[roomId], hostId: roomHosts[roomId] });
+    io.to(roomId).emit("room-turn", { turnUserId: roomTurns[roomId] || null });
     
     // Chuyển hướng tất cả players sang room game
     socket.emit('game-started', { roomId, gameMode: '2vs2' });
