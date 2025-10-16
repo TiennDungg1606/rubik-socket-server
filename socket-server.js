@@ -583,6 +583,23 @@ io.on("connection", (socket) => {
     socket.to(room).emit("timer-prep", data);
   });
 
+  // NEW: Separate 2vs2 timer-prep event handling
+  socket.on("timer-prep-2vs2", (data) => {
+    if (!data || !data.roomId) return;
+    const room = data.roomId.toUpperCase();
+    const gameMode = roomsMeta[room]?.gameMode || "1vs1";
+    
+    // Only handle 2vs2 timer-prep for 2vs2 rooms
+    if (gameMode === "2vs2") {
+      // Validate that the user has the turn
+      const currentUserId = data.userId;
+      const currentTurn = roomTurns[room];
+      if (currentUserId && currentTurn && currentUserId === currentTurn) {
+        socket.to(room).emit("timer-prep-2vs2", data);
+      }
+    }
+  });
+
   // Quản lý interval gửi timer-update liên tục cho từng phòng
   if (!global.timerIntervals) global.timerIntervals = {};
   const timerIntervals = global.timerIntervals;
@@ -591,52 +608,126 @@ io.on("connection", (socket) => {
   socket.on("timer-update", (data) => {
     if (!data || !data.roomId) return;
     const room = data.roomId.toUpperCase();
-    // Lưu trạng thái timer hiện tại cho phòng
-    if (!global.roomTimers) global.roomTimers = {};
-    global.roomTimers[room] = {
-      ms: data.ms,
-      running: data.running,
-      finished: data.finished,
-      userId: data.userId,
-      lastUpdate: Date.now()
-    };
-    // Nếu đang giải, bắt đầu interval gửi timer-update liên tục
-    if (data.running) {
-      if (timerIntervals[room]) clearInterval(timerIntervals[room]);
-      timerIntervals[room] = setInterval(() => {
-        const timerState = global.roomTimers[room];
-        if (!timerState || !timerState.running) {
+    const gameMode = roomsMeta[room]?.gameMode || "1vs1";
+    
+    // For 1vs1 rooms, use existing logic
+    if (gameMode === "1vs1") {
+      // Lưu trạng thái timer hiện tại cho phòng
+      if (!global.roomTimers) global.roomTimers = {};
+      global.roomTimers[room] = {
+        ms: data.ms,
+        running: data.running,
+        finished: data.finished,
+        userId: data.userId,
+        lastUpdate: Date.now()
+      };
+      // Nếu đang giải, bắt đầu interval gửi timer-update liên tục
+      if (data.running) {
+        if (timerIntervals[room]) clearInterval(timerIntervals[room]);
+        timerIntervals[room] = setInterval(() => {
+          const timerState = global.roomTimers[room];
+          if (!timerState || !timerState.running) {
+            clearInterval(timerIntervals[room]);
+            delete timerIntervals[room];
+            return;
+          }
+          // Tính toán ms mới dựa trên thời gian thực tế
+          const now = Date.now();
+          const elapsed = now - timerState.lastUpdate;
+          const updatedMs = timerState.ms + elapsed;
+          timerState.ms = updatedMs;
+          timerState.lastUpdate = now;
+          io.to(room).emit("timer-update", {
+            roomId: room,
+            userId: timerState.userId,
+            ms: updatedMs,
+            running: true,
+            finished: false
+          });
+        }, 50); // gửi mỗi 50ms
+      } else {
+        // Khi dừng giải, gửi timer-update cuối cùng và dừng interval
+        if (timerIntervals[room]) {
           clearInterval(timerIntervals[room]);
           delete timerIntervals[room];
-          return;
         }
-        // Tính toán ms mới dựa trên thời gian thực tế
-        const now = Date.now();
-        const elapsed = now - timerState.lastUpdate;
-        const updatedMs = timerState.ms + elapsed;
-        timerState.ms = updatedMs;
-        timerState.lastUpdate = now;
         io.to(room).emit("timer-update", {
           roomId: room,
-          userId: timerState.userId,
-          ms: updatedMs,
-          running: true,
-          finished: false
+          userId: data.userId,
+          ms: data.ms,
+          running: false,
+          finished: data.finished
         });
-      }, 50); // gửi mỗi 50ms
-    } else {
-      // Khi dừng giải, gửi timer-update cuối cùng và dừng interval
-      if (timerIntervals[room]) {
-        clearInterval(timerIntervals[room]);
-        delete timerIntervals[room];
       }
-      io.to(room).emit("timer-update", {
-        roomId: room,
-        userId: data.userId,
+    }
+  });
+
+  // NEW: Separate 2vs2 timer-update handling
+  socket.on("timer-update-2vs2", (data) => {
+    if (!data || !data.roomId) return;
+    const room = data.roomId.toUpperCase();
+    const gameMode = roomsMeta[room]?.gameMode || "1vs1";
+    
+    // Only handle 2vs2 timer-update for 2vs2 rooms
+    if (gameMode === "2vs2") {
+      // Validate that the user has the turn
+      const currentUserId = data.userId;
+      const currentTurn = roomTurns[room];
+      if (!currentUserId || !currentTurn || currentUserId !== currentTurn) {
+        return; // Invalid turn, ignore
+      }
+      
+      // Lưu trạng thái timer hiện tại cho phòng 2vs2
+      if (!global.roomTimers2vs2) global.roomTimers2vs2 = {};
+      global.roomTimers2vs2[room] = {
         ms: data.ms,
-        running: false,
-        finished: data.finished
-      });
+        running: data.running,
+        finished: data.finished,
+        userId: data.userId,
+        lastUpdate: Date.now()
+      };
+      
+      // Nếu đang giải, bắt đầu interval gửi timer-update liên tục
+      if (data.running) {
+        if (!global.timerIntervals2vs2) global.timerIntervals2vs2 = {};
+        const timerIntervals2vs2 = global.timerIntervals2vs2;
+        
+        if (timerIntervals2vs2[room]) clearInterval(timerIntervals2vs2[room]);
+        timerIntervals2vs2[room] = setInterval(() => {
+          const timerState = global.roomTimers2vs2[room];
+          if (!timerState || !timerState.running) {
+            clearInterval(timerIntervals2vs2[room]);
+            delete timerIntervals2vs2[room];
+            return;
+          }
+          // Tính toán ms mới dựa trên thời gian thực tế
+          const now = Date.now();
+          const elapsed = now - timerState.lastUpdate;
+          const updatedMs = timerState.ms + elapsed;
+          timerState.ms = updatedMs;
+          timerState.lastUpdate = now;
+          io.to(room).emit("timer-update-2vs2", {
+            roomId: room,
+            userId: timerState.userId,
+            ms: updatedMs,
+            running: true,
+            finished: false
+          });
+        }, 50); // gửi mỗi 50ms
+      } else {
+        // Khi dừng giải, gửi timer-update cuối cùng và dừng interval
+        if (global.timerIntervals2vs2 && global.timerIntervals2vs2[room]) {
+          clearInterval(global.timerIntervals2vs2[room]);
+          delete global.timerIntervals2vs2[room];
+        }
+        io.to(room).emit("timer-update-2vs2", {
+          roomId: room,
+          userId: data.userId,
+          ms: data.ms,
+          running: false,
+          finished: data.finished
+        });
+      }
     }
   });
   console.log("🔌 Client connected");
