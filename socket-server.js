@@ -8,6 +8,7 @@ const rooms = {}; // Quản lý người chơi trong từng room
 const scrambles = {}; // Quản lý scramble cho từng room
 const roomsMeta = {}; // Quản lý meta phòng: event, displayName, password
 const roomHosts = {}; // Lưu userId chủ phòng cho từng room
+const rematch2v2States = {}; // Theo dõi trạng thái tái đấu 2vs2 mỗi phòng
 const roomTurns = {}; // Lưu userId người được quyền giải (turn) cho từng room
 const roomTurnSequences = {}; // Lưu trật tự luân phiên của từng phòng (2vs2)
 const roomTurnIndices = {}; // Lưu vị trí hiện tại trong chu kỳ lượt chơi (2vs2)
@@ -614,12 +615,14 @@ io.on("connection", (socket) => {
     if (gameMode === "1vs1") {
       // Lưu trạng thái timer hiện tại cho phòng
       if (!global.roomTimers) global.roomTimers = {};
+      const now = Date.now();
       global.roomTimers[room] = {
         ms: data.ms,
         running: data.running,
         finished: data.finished,
         userId: data.userId,
-        lastUpdate: Date.now()
+        lastUpdate: now,
+        lastBroadcastMs: data.ms
       };
       // Nếu đang giải, bắt đầu interval gửi timer-update liên tục
       if (data.running) {
@@ -632,11 +635,17 @@ io.on("connection", (socket) => {
             return;
           }
           // Tính toán ms mới dựa trên thời gian thực tế
-          const now = Date.now();
-          const elapsed = now - timerState.lastUpdate;
+          const nowTick = Date.now();
+          const elapsed = nowTick - timerState.lastUpdate;
           const updatedMs = timerState.ms + elapsed;
           timerState.ms = updatedMs;
-          timerState.lastUpdate = now;
+          timerState.lastUpdate = nowTick;
+
+          if (Math.abs(updatedMs - timerState.lastBroadcastMs) < 10) {
+            return;
+          }
+
+          timerState.lastBroadcastMs = updatedMs;
           io.to(room).emit("timer-update", {
             roomId: room,
             userId: timerState.userId,
@@ -644,12 +653,15 @@ io.on("connection", (socket) => {
             running: true,
             finished: false
           });
-        }, 50); // gửi mỗi 50ms
+        }, 80); // gửi mỗi ~80ms
       } else {
         // Khi dừng giải, gửi timer-update cuối cùng và dừng interval
         if (timerIntervals[room]) {
           clearInterval(timerIntervals[room]);
           delete timerIntervals[room];
+        }
+        if (global.roomTimers[room]) {
+          global.roomTimers[room].lastBroadcastMs = data.ms;
         }
         io.to(room).emit("timer-update", {
           roomId: room,
@@ -679,12 +691,14 @@ io.on("connection", (socket) => {
       
       // Lưu trạng thái timer hiện tại cho phòng 2vs2
       if (!global.roomTimers2vs2) global.roomTimers2vs2 = {};
+      const now = Date.now();
       global.roomTimers2vs2[room] = {
         ms: data.ms,
         running: data.running,
         finished: data.finished,
         userId: data.userId,
-        lastUpdate: Date.now()
+        lastUpdate: now,
+        lastBroadcastMs: data.ms
       };
       
       // Nếu đang giải, bắt đầu interval gửi timer-update liên tục
@@ -701,11 +715,17 @@ io.on("connection", (socket) => {
             return;
           }
           // Tính toán ms mới dựa trên thời gian thực tế
-          const now = Date.now();
-          const elapsed = now - timerState.lastUpdate;
+          const nowTick = Date.now();
+          const elapsed = nowTick - timerState.lastUpdate;
           const updatedMs = timerState.ms + elapsed;
           timerState.ms = updatedMs;
-          timerState.lastUpdate = now;
+          timerState.lastUpdate = nowTick;
+
+          if (Math.abs(updatedMs - timerState.lastBroadcastMs) < 10) {
+            return;
+          }
+
+          timerState.lastBroadcastMs = updatedMs;
           io.to(room).emit("timer-update-2vs2", {
             roomId: room,
             userId: timerState.userId,
@@ -713,12 +733,15 @@ io.on("connection", (socket) => {
             running: true,
             finished: false
           });
-        }, 50); // gửi mỗi 50ms
+        }, 80); // gửi mỗi ~80ms
       } else {
         // Khi dừng giải, gửi timer-update cuối cùng và dừng interval
         if (global.timerIntervals2vs2 && global.timerIntervals2vs2[room]) {
           clearInterval(global.timerIntervals2vs2[room]);
           delete global.timerIntervals2vs2[room];
+        }
+        if (global.roomTimers2vs2[room]) {
+          global.roomTimers2vs2[room].lastBroadcastMs = data.ms;
         }
         io.to(room).emit("timer-update-2vs2", {
           roomId: room,
@@ -818,7 +841,19 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
     if (isNewRoom) {
       io.emit("update-active-rooms");
     }
-    console.log("All rooms:", JSON.stringify(rooms));
+    const debugRooms = Object.fromEntries(
+      Object.entries(rooms).map(([roomId, userList]) => {
+        const gameModeForRoom = roomsMeta[roomId]?.gameMode || "1vs1";
+        if (gameModeForRoom === "2vs2") {
+          const namesOnly = Array.isArray(userList)
+            ? userList.map(user => user?.userName || user?.userId || "unknown")
+            : [];
+          return [roomId, { gameMode: gameModeForRoom, users: namesOnly }];
+        }
+        return [roomId, userList];
+      })
+    );
+    console.log("All rooms:", JSON.stringify(debugRooms));
 
     if (!scrambles[room]) {
       scrambles[room] = [];
@@ -978,6 +1013,83 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
       }
     }
   })
+    // --- Rematch 2vs2 events ---
+  socket.on("rematch2v2-request", ({ roomId, userId }) => {
+    const room = (roomId || "").toUpperCase();
+    if (!room) return;
+
+    const hostId = roomHosts[room];
+    if (hostId && normalizeId(hostId) !== normalizeId(userId)) {
+      return; // Chỉ chủ phòng được quyền mở modal tái đấu
+    }
+
+    const players = (rooms[room] || []).filter(player => player && !player.isObserver);
+    if (!players.length) return;
+
+    rematch2v2States[room] = {
+      initiatorId: userId,
+      participants: players.map(player => ({
+        userId: player.userId,
+        userName: player.userName || "Người chơi"
+      })),
+      accepted: new Set()
+    };
+
+    io.to(room).emit("rematch2v2-open", {
+      initiatorId: userId,
+      participants: rematch2v2States[room].participants,
+      acceptedIds: []
+    });
+  });
+
+  socket.on("rematch2v2-respond", ({ roomId, userId }) => {
+    const room = (roomId || "").toUpperCase();
+    if (!room || !userId) return;
+
+    const state = rematch2v2States[room];
+    if (!state || !Array.isArray(state.participants)) return;
+
+    const normalizedUserId = normalizeId(userId);
+    const isParticipant = state.participants.some(participant => normalizeId(participant.userId) === normalizedUserId);
+    if (!isParticipant) return;
+
+    state.accepted.add(normalizedUserId);
+    const acceptedIds = Array.from(state.accepted);
+    io.to(room).emit("rematch2v2-update", { acceptedIds });
+
+    const everyoneApproved = state.participants.every(participant => state.accepted.has(normalizeId(participant.userId)));
+    if (everyoneApproved) {
+      const eventType = roomsMeta[room]?.event || "3x3";
+      scrambles[room] = generateLocalScrambles(eventType);
+      if (socket.server.solveCount) {
+        socket.server.solveCount[room] = 0;
+      }
+
+      io.to(room).emit("rematch2v2-confirmed", { acceptedIds });
+      io.to(room).emit("rematch-accepted");
+      if (scrambles[room] && scrambles[room].length > 0) {
+        io.to(room).emit("scramble", { scramble: scrambles[room][0], index: 0 });
+      }
+      io.to(room).emit("unlock-due-rematch", { roomId });
+      delete rematch2v2States[room];
+    }
+  });
+
+  socket.on("rematch2v2-cancel", ({ roomId, userId }) => {
+    const room = (roomId || "").toUpperCase();
+    if (!room) return;
+
+    const hostId = roomHosts[room];
+    if (hostId && normalizeId(hostId) !== normalizeId(userId)) {
+      return;
+    }
+
+    if (rematch2v2States[room]) {
+      delete rematch2v2States[room];
+      io.to(room).emit("rematch2v2-cancelled", { cancelledBy: userId });
+    }
+  });
+
     // --- Rematch events ---
   socket.on("rematch-request", ({ roomId, fromUserId }) => {
     const room = roomId.toUpperCase();
@@ -1201,7 +1313,6 @@ socket.on("rematch-accepted", ({ roomId }) => {
     const team1Count = waitingRooms[roomId].players.filter(p => p.team === 'team1').length;
     const team2Count = waitingRooms[roomId].players.filter(p => p.team === 'team2').length;
     const observerCount = waitingRooms[roomId].players.filter(p => p.isObserver).length;
-    console.log(`📊 Waiting room ${roomId}: ${totalPlayers} players (Team1: ${team1Count}, Team2: ${team2Count}, Observers: ${observerCount})`);
   });
   
   // Toggle ready status
