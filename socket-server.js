@@ -800,8 +800,12 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
         roomsMeta[room].displayName = displayName;
       }
       
+      // Enforce password ONLY for waiting rooms (2vs2 lobby).
+      // Once a waiting room is promoted to an active match (waitingRooms[room] removed),
+      // the active game should not be gated by the waiting-room password.
       const roomPassword = roomsMeta[room]?.password || "";
-      if (roomPassword && password !== roomPassword) {
+      const isWaitingRoomForJoin = !!waitingRooms[room];
+      if (roomPassword && isWaitingRoomForJoin && password !== roomPassword) {
         socket.emit("wrong-password", { message: "Sai mật khẩu phòng!" });
         return;
       }
@@ -1086,8 +1090,27 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
 
     if (rematch2v2States[room]) {
       delete rematch2v2States[room];
-      io.to(room).emit("rematch2v2-cancelled", { cancelledBy: userId });
+      io.to(room).emit("rematch2v2-cancelled", { cancelledBy: userId, reason: "host-cancelled" });
     }
+  });
+
+  socket.on("rematch2v2-decline", ({ roomId, userId }) => {
+    const room = (roomId || "").toUpperCase();
+    if (!room || !userId) return;
+
+    const state = rematch2v2States[room];
+    if (!state || !Array.isArray(state.participants)) return;
+
+    const normalizedUserId = normalizeId(userId);
+    const isParticipant = state.participants.some(participant => normalizeId(participant.userId) === normalizedUserId);
+    if (!isParticipant) return;
+
+    if (state.accepted instanceof Set) {
+      state.accepted.delete(normalizedUserId);
+    }
+
+    delete rematch2v2States[room];
+    io.to(room).emit("rematch2v2-cancelled", { cancelledBy: userId, reason: "declined" });
   });
 
     // --- Rematch events ---
