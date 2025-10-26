@@ -488,7 +488,7 @@ const server = http.createServer((req, res) => {
     });
     req.on('end', () => {
       try {
-        const { roomId, gameMode, event, displayName, password } = JSON.parse(body);
+  const { roomId, gameMode, event, displayName, password } = JSON.parse(body);
  
         
         // Tạo waiting room nếu chưa tồn tại
@@ -499,13 +499,17 @@ const server = http.createServer((req, res) => {
             roomCreator: null, // Sẽ được set khi user đầu tiên join
             gameStarted: false,
             displayName: displayName || roomId, // Lưu tên phòng
-            password: password || null // Lưu mật khẩu
+            password: password || null, // Lưu mật khẩu
+            event: event || '3x3'
           };
 
           
           // Emit update-active-rooms để thông báo cho tất cả client
           io.emit("update-active-rooms");
 
+        }
+        else {
+          waitingRooms[roomId].event = event || waitingRooms[roomId].event || '3x3';
         }
         
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -537,7 +541,7 @@ const server = http.createServer((req, res) => {
       roomId,
       meta: { 
         gameMode: '2vs2',
-        event: '3x3', // default event
+        event: waitingRooms[roomId].event || '3x3',
         displayName: waitingRooms[roomId].displayName || roomId,
         password: waitingRooms[roomId].password || null,
         isWaitingRoom: true
@@ -1257,7 +1261,7 @@ socket.on("rematch-accepted", ({ roomId }) => {
   
   // Join waiting room
   socket.on('join-waiting-room', (data) => {
-    const { roomId, userId, userName, displayName, password } = data;
+  const { roomId, userId, userName, displayName, password, event } = data;
 
     
     if (!waitingRooms[roomId]) {
@@ -1268,7 +1272,8 @@ socket.on("rematch-accepted", ({ roomId }) => {
         gameStarted: false,
         createdAt: Date.now(), // Thêm timestamp để track thời gian tạo
         displayName: displayName || roomId, // Tên phòng hiển thị
-        password: password || null // Mật khẩu phòng
+        password: password || null, // Mật khẩu phòng
+        event: event || waitingRooms[roomId]?.event || '3x3'
       };
     } else {
       // Cập nhật displayName và password nếu có
@@ -1277,6 +1282,9 @@ socket.on("rematch-accepted", ({ roomId }) => {
       }
       if (password) {
         waitingRooms[roomId].password = password;
+      }
+      if (event) {
+        waitingRooms[roomId].event = event;
       }
     }
       
@@ -1419,10 +1427,11 @@ socket.on("rematch-accepted", ({ roomId }) => {
     if (!roomsMeta[roomId]) {
       roomsMeta[roomId] = {};
     }
-    roomsMeta[roomId].displayName = waitingRooms[roomId].displayName || roomId;
-    roomsMeta[roomId].gameMode = '2vs2';
-    roomsMeta[roomId].event = '3x3'; // default event
-    roomsMeta[roomId].password = waitingRooms[roomId].password || '';
+  const resolvedEvent = waitingRooms[roomId].event || roomsMeta[roomId].event || '3x3';
+  roomsMeta[roomId].displayName = waitingRooms[roomId].displayName || roomId;
+  roomsMeta[roomId].gameMode = '2vs2';
+  roomsMeta[roomId].event = resolvedEvent;
+  roomsMeta[roomId].password = waitingRooms[roomId].password || '';
 
     // Snapshot toàn bộ người chơi (kể cả observer) cùng thông tin team/position
     const playersSnapshot = waitingRooms[roomId].players.map(player => ({
