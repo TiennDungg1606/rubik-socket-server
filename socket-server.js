@@ -315,6 +315,40 @@ function removeUserAndCleanup(room, userId) {
   rooms[room] = rooms[room]
     .filter(u => u && u.userId && u.userId !== normalizedUserId);
 
+  if (normalizedUserId) {
+    if (global.roomTimers && global.roomTimers[room] && global.roomTimers[room].userId === normalizedUserId) {
+      if (global.timerIntervals && global.timerIntervals[room]) {
+        clearInterval(global.timerIntervals[room]);
+        delete global.timerIntervals[room];
+      }
+      delete global.roomTimers[room];
+      io.to(room).emit("timer-update", {
+        roomId: room,
+        userId: normalizedUserId,
+        ms: 0,
+        running: false,
+        finished: false,
+        forceReset: true,
+      });
+    }
+
+    if (global.roomTimers2vs2 && global.roomTimers2vs2[room] && global.roomTimers2vs2[room].userId === normalizedUserId) {
+      if (global.timerIntervals2vs2 && global.timerIntervals2vs2[room]) {
+        clearInterval(global.timerIntervals2vs2[room]);
+        delete global.timerIntervals2vs2[room];
+      }
+      delete global.roomTimers2vs2[room];
+      io.to(room).emit("timer-update-2vs2", {
+        roomId: room,
+        userId: normalizedUserId,
+        ms: 0,
+        running: false,
+        finished: false,
+        forceReset: true,
+      });
+    }
+  }
+
   const currentUsers = rooms[room];
 
   if (!currentUsers) return;
