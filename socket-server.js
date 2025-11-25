@@ -2,7 +2,7 @@
 const { Server } = require("socket.io");
 const http = require("http");
 const url = require("url");
-const { generateWcaScramble, generate2x2Scramble, generate3x3Scramble, generate4x4Scramble, generatePyraminxScramble } = require("./scramble.js");
+const { generateWcaScramble, generate2x2Scramble, generate3x3Scramble, generate4x4Scramble, generatePyraminxScramble, generateRelay2to4Scramble } = require("./scramble.js");
 
 const rooms = {}; // Quản lý người chơi trong từng room
 const scrambles = {}; // Quản lý scramble cho từng room
@@ -467,7 +467,9 @@ function handle2vs2Cleanup(room, activeCount, removedUserId) {
 function generateLocalScrambles(event = "3x3") {
   const localScrambles = [];
   for (let i = 0; i < 5; i++) {
-    if (event === "2x2") {
+    if (event === "relay2-4") {
+      localScrambles.push(generateRelay2to4Scramble());
+    } else if (event === "2x2") {
       localScrambles.push(generate2x2Scramble());
     } else if (event === "4x4") {
       localScrambles.push(generate4x4Scramble());
@@ -477,7 +479,6 @@ function generateLocalScrambles(event = "3x3") {
       localScrambles.push(generate3x3Scramble());
     }
   }
-  // console.log(`✅ Generated 5 local scrambles for ${event}`); // Ẩn log chi tiết scramble
   return localScrambles;
 }
 
