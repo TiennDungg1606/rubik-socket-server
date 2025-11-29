@@ -895,7 +895,11 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
             : [];
           return [roomId, { gameMode: gameModeForRoom, users: namesOnly }];
         }
-        return [roomId, userList];
+        // Ẩn trường avatar với các phòng 1vs1
+        const usersNoAvatar = Array.isArray(userList)
+          ? userList.map(({ avatar, ...rest }) => rest)
+          : userList;
+        return [roomId, usersNoAvatar];
       })
     );
     console.log("All rooms:", JSON.stringify(debugRooms));
