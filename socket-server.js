@@ -804,7 +804,7 @@ io.on("connection", (socket) => {
     removeUserAndCleanup(roomId?.toUpperCase(), userId);
   });
 
-socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, displayName, password, gameMode, avatar }) => {
+socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, displayName, password, gameMode }) => {
     const room = roomId.toUpperCase();
     if (!userName || typeof userName !== "string" || !userName.trim() || !userId || typeof userId !== "string" || !userId.trim()) {
       return;
@@ -860,13 +860,11 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
     const existingUser = rooms[room].find(u => u.userId === userId);
     if (existingUser) {
       existingUser.userName = userName;
-      if (avatar) existingUser.avatar = avatar;
       if (roomsMeta[room]?.playerMap && roomsMeta[room].playerMap[userId]) {
         Object.assign(existingUser, roomsMeta[room].playerMap[userId]);
       }
     } else {
       const baseUser = { userId, userName };
-      if (avatar) baseUser.avatar = avatar;
       if (roomsMeta[room]?.playerMap && roomsMeta[room].playerMap[userId]) {
         rooms[room].push({ ...baseUser, ...roomsMeta[room].playerMap[userId] });
       } else {
@@ -895,11 +893,7 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
             : [];
           return [roomId, { gameMode: gameModeForRoom, users: namesOnly }];
         }
-        // Ẩn trường avatar với các phòng 1vs1
-        const usersNoAvatar = Array.isArray(userList)
-          ? userList.map(({ avatar, ...rest }) => rest)
-          : userList;
-        return [roomId, usersNoAvatar];
+        return [roomId, userList];
       })
     );
     console.log("All rooms:", JSON.stringify(debugRooms));
