@@ -804,7 +804,7 @@ io.on("connection", (socket) => {
     removeUserAndCleanup(roomId?.toUpperCase(), userId);
   });
 
-socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, displayName, password, gameMode }) => {
+socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, displayName, password, gameMode, avatar }) => {
     const room = roomId.toUpperCase();
     if (!userName || typeof userName !== "string" || !userName.trim() || !userId || typeof userId !== "string" || !userId.trim()) {
       return;
