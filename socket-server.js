@@ -860,11 +860,13 @@ socket.on("join-room", ({ roomId, userId, userName, isSpectator = false, event, 
     const existingUser = rooms[room].find(u => u.userId === userId);
     if (existingUser) {
       existingUser.userName = userName;
+      if (avatar) existingUser.avatar = avatar;
       if (roomsMeta[room]?.playerMap && roomsMeta[room].playerMap[userId]) {
         Object.assign(existingUser, roomsMeta[room].playerMap[userId]);
       }
     } else {
       const baseUser = { userId, userName };
+      if (avatar) baseUser.avatar = avatar;
       if (roomsMeta[room]?.playerMap && roomsMeta[room].playerMap[userId]) {
         rooms[room].push({ ...baseUser, ...roomsMeta[room].playerMap[userId] });
       } else {
