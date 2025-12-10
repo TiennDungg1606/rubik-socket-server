@@ -371,21 +371,11 @@ function generatePyraminxTipMoves(moves, modifiers, length) {
   return sequence.join(' ');
 }
 
-// Hàm tạo scramble cho relay 2x2-3x3-4x4
-function generateRelay2to4Scramble() {
-  return (
-    '2x2: ' + generate2x2Scramble() + '\n' +
-    '3x3: ' + generate3x3Scramble() + '\n' +
-    '4x4: ' + generate4x4Scramble()
-  );
-}
-
 // Export các hàm
 module.exports = {
   generateWcaScramble,
   generate2x2Scramble,
   generate3x3Scramble,
   generate4x4Scramble,
-  generatePyraminxScramble,
-  generateRelay2to4Scramble
+  generatePyraminxScramble
 };
